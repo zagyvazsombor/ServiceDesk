@@ -10,14 +10,11 @@ namespace ServiceDesk.Infrastructure.Tests.Persistence;
 // migration snapshot and does not open a database connection.
 public sealed class AppDbContextModelTests
 {
-    private const string ConnectionString =
-        @"Server=(localdb)\MSSQLLocalDB;Database=ServiceDesk_Tests;Trusted_Connection=True;MultipleActiveResultSets=true";
-
     [Fact]
     public void HasPendingModelChanges_AfterLatestMigration_ReturnsFalse()
     {
         var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:DefaultConnection"] = ConnectionString })
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:DefaultConnection"] = TestDatabase.ConnectionString })
             .Build();
         // Resolved through AddInfrastructure: IdentityDbContext reads the schema version (passkeys table) from the
         // registered IdentityOptions, so a context created with `new` would build a different model.
