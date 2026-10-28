@@ -41,7 +41,7 @@ Engedélyezett csomagok (ezen kívül semmi):
 - Web: `MudBlazor`, `Extensions.MudBlazor.StaticInput`, `Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore`, `Microsoft.EntityFrameworkCore.Tools`
 - Application: `FluentValidation`, `FluentValidation.DependencyInjectionExtensions`, `Microsoft.Extensions.DependencyInjection.Abstractions`, `Microsoft.Extensions.Logging.Abstractions`
 - Infrastructure: `Microsoft.AspNetCore.Identity.EntityFrameworkCore`, `Microsoft.EntityFrameworkCore.SqlServer`, `Microsoft.Extensions.AI`, `OllamaSharp`, `Microsoft.Extensions.AI.OpenAI`, valamint `<FrameworkReference Include="Microsoft.AspNetCore.App" />`
-- Tesztek: `xunit.v3`, `xunit.runner.visualstudio`, `Microsoft.NET.Test.Sdk`, `Shouldly`, `NSubstitute`, `bunit`, `Respawn`, `NetArchTest.Rules`, `Microsoft.Extensions.TimeProvider.Testing`
+- Tesztek: `xunit.v3`, `xunit.runner.visualstudio`, `Microsoft.NET.Test.Sdk`, `Shouldly`, `NSubstitute`, `bunit`, `Respawn`, `NetArchTest.Rules`, `Microsoft.Extensions.TimeProvider.Testing`, `Microsoft.AspNetCore.Mvc.Testing`
 
 Eszköz: `dotnet-ef` helyi eszközként (`.config/dotnet-tools.json`, `dotnet tool restore`).
 
@@ -58,7 +58,7 @@ ServiceDesk/
 │   ├── ServiceDesk.Domain.Tests/
 │   ├── ServiceDesk.Application.Tests/
 │   ├── ServiceDesk.Infrastructure.Tests/   LocalDB integrációs tesztek
-│   ├── ServiceDesk.Web.Tests/              bUnit
+│   ├── ServiceDesk.Web.Tests/              bUnit és HTTP-szintű tesztek
 │   └── ServiceDesk.ArchitectureTests/
 ├── docs/
 │   ├── adr/       ADR-<nnn>-<slug>.md
@@ -143,7 +143,7 @@ KÖTELEZŐ minták:
   - `AddRazorComponents().AddInteractiveServerComponents(o => o.DetailedErrors = builder.Environment.IsDevelopment())`
   - `AddCascadingAuthenticationState()`, `UseAntiforgery()`, `MapStaticAssets()`
   - `MapRazorComponents<App>().AddInteractiveServerRenderMode()`, `MapAdditionalIdentityEndpoints()`
-- Globális interaktivitás az `App.razor`-ban a sablon `PageRenderMode` logikájával (`HttpContext.AcceptsInteractiveRouting()`). Interaktív esetben a visszaadott érték `new InteractiveServerRenderMode(prerender: false)` (statikus mezőben).
+- Globális interaktivitás az `App.razor`-ban a sablon `PageRenderMode` logikájával (`HttpContext.AcceptsInteractiveRouting()`), azzal a kivétellel, hogy a státuszkód-újrafuttatott (`IStatusCodeReExecuteFeature`) kérések statikusan renderelődnek. Indok: ezekhez a válaszokhoz a framework nem ír megőrzött komponensállapotot, így a belőlük induló circuitnek nem volna antiforgery-tokenje (ADR-006). A hibakezelő oldalt a framework eleve statikusan rendereli; ezt teszt ellenőrzi. Interaktív esetben a visszaadott érték `new InteractiveServerRenderMode(prerender: false)` (statikus mezőben).
 - A `Components/Account` oldalai `[ExcludeFromInteractiveRouting]` miatt statikus SSR-ben futnak; ezt nem változtatjuk meg.
 - Oldalakra nem kerül `@rendermode` direktíva.
 - Statikus fájlok `@Assets["…"]`-szel, pl. `@Assets["_framework/blazor.web.js"]`, `@Assets["_content/MudBlazor/MudBlazor.min.css"]`.
@@ -343,7 +343,7 @@ Terhelési súly: Critical 5, High 4, Medium 3, Low 2, Planning 1.
 - Domain.Tests: minden BR-hez legalább egy pozitív és egy negatív teszt, `[Trait("BR", "BR-03")]` jelöléssel. Az állapotgép összes átmenetét táblázatos `[Theory]` fedi le.
 - Application.Tests: handler-tesztek NSubstitute-tal. Minden handlerhez autorizációs teszt: nem bejelentkezett → `Forbidden`, rossz szerepkör → `Forbidden`, idegen jegy → `NotFound`.
 - Infrastructure.Tests: LocalDB `ServiceDesk_Tests` adatbázis. Migráció egyszer fut (assembly fixture), tesztenként Respawn-reset; ebben a projektben a párhuzamosítás ki van kapcsolva.
-- Web.Tests: bUnit MudBlazor-szolgáltatásokkal (`AddMudServices`, laza JS-interop); az `IUseCaseRunner` helyettesítve.
+- Web.Tests: bUnit MudBlazor-szolgáltatásokkal (`AddMudServices`, laza JS-interop); az `IUseCaseRunner` helyettesítve; valamint HTTP-szintű tesztek WebApplicationFactory-val a `Http/` mappában.
 - ArchitectureTests: a 4. szakasz minden szabálya.
 - Idő `FakeTimeProvider`-rel. Elnevezés: `Method_Scenario_ExpectedResult`; Arrange–Act–Assert szerkezet.
 
