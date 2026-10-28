@@ -105,4 +105,4 @@ Mehet a megvalósítás.
 ## Emberi javítás
 Kézi kódmódosításra nem volt szükség. A K1 döntésben az alternatívát választottam: a metódus neve SelectAgent lett a CA1716 kódellenőrzési figyelmeztetés és a felesleges [SuppressMessage] attribútum elkerülése érdekében. A determinisztikus sorrendet ellenőrző és BR tesztek hibátlanul lefutottak.
 ## Commit
-feat(domain): implement least loaded assignment strategy with tie-breaking rules
+feat(domain): implement least loaded assignment strategy with tie-breaking rules (SHA: 7775cfc)

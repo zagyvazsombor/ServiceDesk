@@ -181,6 +181,68 @@ public sealed class TicketHistoryTests
         ticket.History.Count.ShouldBe(countBefore);
     }
 
+    [Fact]
+    [Trait("BR", "BR-10")]
+    public void Create_ValidInput_FirstEntryHasSequenceOne()
+    {
+        var ticket = TestData.CreateTicket(_category);
+
+        ticket.History.ShouldHaveSingleItem().Sequence.ShouldBe(1);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-10")]
+    public void AssignTo_NewTicket_NumbersEntriesOfOneOperationInOrder()
+    {
+        var ticket = TestData.CreateTicket(_category);
+
+        ticket.AssignTo(TestData.CreateAgent(_category), null, TestData.Later);
+
+        ticket.History.OrderBy(entry => entry.Sequence).Select(entry => (entry.Sequence, entry.Action)).ShouldBe(
+        [
+            (1, TicketHistoryAction.Created),
+            (2, TicketHistoryAction.Assigned),
+            (3, TicketHistoryAction.StatusChanged),
+        ]);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-10")]
+    public void ChangeImpactAndUrgency_BothChanged_NumbersImpactBeforeUrgency()
+    {
+        var ticket = TestData.CreateTicket(_category, Impact.Medium, Urgency.Medium);
+
+        ticket.ChangeImpactAndUrgency(Impact.High, Urgency.Low, TestData.AdminUserId, TestData.Later);
+
+        ticket.History.OrderBy(entry => entry.Sequence).Select(entry => (entry.Sequence, entry.Action)).ShouldBe(
+        [
+            (1, TicketHistoryAction.Created),
+            (2, TicketHistoryAction.ImpactChanged),
+            (3, TicketHistoryAction.UrgencyChanged),
+        ]);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-10")]
+    public void History_MainPathToClosed_SequenceRunsFromOneWithoutGaps()
+    {
+        var ticket = TestData.CreateTicketInStatus(TicketStatus.Closed, _category, TestData.CreateAgent(_category));
+
+        ticket.History.Select(entry => entry.Sequence).ShouldBe(Enumerable.Range(1, ticket.History.Count));
+    }
+
+    [Fact]
+    [Trait("BR", "BR-10")]
+    public void AssignTo_AfterFailedOperation_ContinuesSequenceWithoutGap()
+    {
+        var ticket = TestData.CreateTicket(_category);
+        ticket.Start(TestData.AdminUserId, TestData.Later);
+
+        ticket.AssignTo(TestData.CreateAgent(_category), null, TestData.Later);
+
+        ticket.History.Select(entry => entry.Sequence).ShouldBe([1, 2, 3]);
+    }
+
     private static EntrySnapshot Snapshot(TicketHistoryEntry entry) =>
         new(entry.Action, entry.ActorUserId, entry.OldValue, entry.NewValue);
 

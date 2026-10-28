@@ -258,11 +258,12 @@ public sealed class Ticket
         Status = newStatus;
     }
 
+    // Entries are never removed and the whole history is always loaded, so the next sequence is count + 1.
     private void AddHistory(
         string? actorUserId,
         DateTimeOffset now,
         TicketHistoryAction action,
         string? oldValue,
         string? newValue) =>
-        _history.Add(TicketHistoryEntry.Create(actorUserId, now, action, oldValue, newValue));
+        _history.Add(TicketHistoryEntry.Create(_history.Count + 1, actorUserId, now, action, oldValue, newValue));
 }
