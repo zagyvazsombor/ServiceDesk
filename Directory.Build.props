@@ -1,0 +1,22 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <!-- IDE0005 (unused using) is reported on build only when the XML documentation file is generated. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- XML doc comments are not mandatory; the documentation file exists only to enable IDE0005. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('Tests'))">
+    <!-- Microsoft.Testing.Platform exit code 8 = zero tests ran. Ignored so that test projects without tests yet
+         and solution-wide trait filters (e.g. BR=BR-03) do not fail the run, matching the VSTest behaviour. -->
+    <TestingPlatformCommandLineArguments>$(TestingPlatformCommandLineArguments) --ignore-exit-code 8</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
+</Project>
