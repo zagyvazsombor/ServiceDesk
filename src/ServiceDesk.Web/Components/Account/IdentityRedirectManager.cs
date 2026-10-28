@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Identity;
-using ServiceDesk.Web.Data;
+using ServiceDesk.Infrastructure.Identity;
 
 namespace ServiceDesk.Web.Components.Account;
 

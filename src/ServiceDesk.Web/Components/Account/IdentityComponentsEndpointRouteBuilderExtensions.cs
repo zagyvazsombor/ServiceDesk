@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Primitives;
 using ServiceDesk.Web.Components.Account.Pages;
 using ServiceDesk.Web.Components.Account.Pages.Manage;
-using ServiceDesk.Web.Data;
+using ServiceDesk.Infrastructure.Identity;
 
 namespace Microsoft.AspNetCore.Routing;
 

@@ -12,8 +12,11 @@
     <PackageVersion Include="MudBlazor" Version="9.11.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Application">
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
+  </ItemGroup>
+
   <ItemGroup Label="Infrastructure">
-    <!-- Referenced by ServiceDesk.Web until the template Identity code moves to Infrastructure. -->
     <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.14" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.14" />
   </ItemGroup>

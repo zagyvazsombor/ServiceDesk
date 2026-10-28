@@ -7,7 +7,7 @@
 <MudLayout>
     <MudAppBar Elevation="1">
         <MudStaticNavDrawerToggle DrawerId="nav-drawer" @bind-Open="_drawerOpen" Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" />
-        <MudText Typo="Typo.h5" Class="ml-3">Application</MudText>
+        <MudText Typo="Typo.h5" Class="ml-3">ServiceDesk</MudText>
         <MudSpacer />
         <MudIconButton Icon="@Icons.Material.Filled.MoreVert" Color="Color.Inherit" Edge="Edge.End" />
     </MudAppBar>
@@ -15,19 +15,36 @@
         <NavMenu />
     </MudDrawer>
     <MudMainContent Class="pt-16 pa-4">
-        @Body
+        @* AGENTS.md §11: unexpected exceptions end up here with a generic message and a retry button. *@
+        <ErrorBoundary @ref="_errorBoundary">
+            <ChildContent>
+                @Body
+            </ChildContent>
+            <ErrorContent>
+                <MudAlert Severity="Severity.Error" Class="mb-4">
+                    Váratlan hiba történt. Próbáld újra, vagy frissítsd az oldalt.
+                </MudAlert>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" OnClick="Recover">
+                    Újrapróbálás
+                </MudButton>
+            </ErrorContent>
+        </ErrorBoundary>
     </MudMainContent>
 </MudLayout>
 
 
 <div id="blazor-error-ui" data-nosnippet>
-    An unhandled error has occurred.
-    <a href="." class="reload">Reload</a>
+    Váratlan hiba történt.
+    <a href="." class="reload">Újratöltés</a>
     <span class="dismiss">🗙</span>
 </div>
 
 @code {
     private bool _drawerOpen = true;
+    private ErrorBoundary? _errorBoundary;
+
+    // A new page (new Body) clears the error state left by the previous one.
+    protected override void OnParametersSet() => Recover();
+
+    private void Recover() => _errorBoundary?.Recover();
 }
-
-

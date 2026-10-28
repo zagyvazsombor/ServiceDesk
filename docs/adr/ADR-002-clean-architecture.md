@@ -45,7 +45,7 @@ Négy forrásprojekt, befelé mutató függőségekkel:
 - Több projekt és több fájl kell. Új funkciónál a port–adapter párt két rétegben kell felvenni.
 - A Domain és az Application gyorsan, külső függőség nélkül tesztelhető. Az Infrastructure integrációs tesztjei
   LocalDB-n futnak.
-- Átmenetileg a sablon Identity-kódja (`Data/ApplicationDbContext`, `ApplicationUser`, a hozzájuk tartozó
-  EF/Identity-csomagok) a Webben van. Egy későbbi lépésben kerül az Infrastructure-be (`AppDbContext`).
+- A sablon Identity-kódja (`ApplicationUser`, `AppDbContext`, az EF/Identity-csomagok) az Infrastructure-ben van
+  (P-1B). A Web csak a `Program.cs`-ben és a `Components/Account` mappában hivatkozik rá.
 - A NetArchTest a típusszintű függőséget ellenőrzi: a nem használt projekt- vagy csomaghivatkozás nem jelenik meg
   a lefordított kódban, ezért ezt a csproj-ok code review-ja fedi le.

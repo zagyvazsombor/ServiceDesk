@@ -39,5 +39,5 @@ SQL Server-viselkedésre kell támaszkodniuk (rowversion, egyedi indexek, FK-k),
   másodperccel lassabb lehet.
 - Az integrációs tesztek ugyanazon a gépi példányon futnak, ezért az Infrastructure.Tests projektben
   a párhuzamos futtatás ki van kapcsolva.
-- Átmenetileg a sablon által generált kapcsolati string és Identity-migráció a Web projektben van. A végleges
-  `ServiceDesk` adatbázisnév és a migrációk Infrastructure-be költözése egy későbbi lépés.
+- A kapcsolati string (`ServiceDesk` adatbázis) az `appsettings.Development.json`-ban van. A migrációs történet
+  az `Infrastructure/Persistence/Migrations` mappában az `InitialIdentity` migrációval indul (P-1B).
