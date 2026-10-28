@@ -3,7 +3,9 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
+using ServiceDesk.Application.Common.Errors;
 using ServiceDesk.Application.Common.Security;
+using ServiceDesk.Domain.Common;
 using ServiceDesk.Web.UseCases;
 using Shouldly;
 
@@ -62,6 +64,22 @@ public sealed class UseCaseRunnerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task RunAsync_SignedInUser_HandlerSeesCircuitUserInItsOwnScopeOnly()
+    {
+        // Arrange
+        SignIn(TestUsers.Reporter);
+
+        // Act
+        var probe = await Runner.RunAsync((ProbeHandler handler, CancellationToken ct) => handler.HandleAsync(ct), CancellationToken);
+
+        // Assert: the user is set on the CurrentUser of the use case scope, not on the one of the circuit scope.
+        var circuitCurrentUser = _circuitScope.ServiceProvider.GetRequiredService<CurrentUser>();
+        probe.CurrentUser.ShouldNotBeSameAs(circuitCurrentUser);
+        probe.CurrentUser.UserId.ShouldBe(TestUsers.UserId);
+        circuitCurrentUser.IsAuthenticated.ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task RunAsync_TwoCalls_EachRunsInItsOwnScopeThatIsDisposedAfterwards()
     {
         // Arrange
@@ -78,6 +96,24 @@ public sealed class UseCaseRunnerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task RunAsync_UserChangesBetweenCalls_EachCallSeesTheUserOfItsTime()
+    {
+        // Arrange: e.g. the revalidation signs the user out between two calls of the same circuit.
+        SignIn(TestUsers.Admin);
+        var first = await Runner.RunAsync((ProbeHandler handler, CancellationToken ct) => handler.HandleAsync(ct), CancellationToken);
+        SignIn(TestUsers.Anonymous);
+
+        // Act
+        var second = await Runner.RunAsync((ProbeHandler handler, CancellationToken ct) => handler.HandleAsync(ct), CancellationToken);
+
+        // Assert
+        second.CurrentUser.ShouldNotBeSameAs(first.CurrentUser);
+        first.UserId.ShouldBe(TestUsers.UserId);
+        second.UserId.ShouldBeNull();
+        second.IsAdmin.ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task RunAsync_HandlerThrows_LogsErrorAndRethrows()
     {
         // Arrange
@@ -90,7 +126,31 @@ public sealed class UseCaseRunnerTests : IAsyncDisposable
 
         // Assert
         exception.ShouldBeSameAs(failure);
-        _logger.Entries.ShouldHaveSingleItem().ShouldBe((LogLevel.Error, failure));
+        var entry = _logger.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Error);
+        entry.Exception.ShouldBeSameAs(failure);
+        entry.Properties["Handler"].ShouldBe(nameof(ProbeHandler));
+    }
+
+    [Fact]
+    public async Task RunAsync_HandlerThrows_DisposesScope()
+    {
+        // Arrange
+        SignIn(TestUsers.Reporter);
+        ProbeHandler? usedHandler = null;
+
+        // Act
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            Runner.RunAsync<ProbeHandler, Probe>(
+                (handler, _) =>
+                {
+                    usedHandler = handler;
+                    throw new InvalidOperationException("Test failure.");
+                },
+                CancellationToken));
+
+        // Assert
+        usedHandler.ShouldNotBeNull().Dependency.IsDisposed.ShouldBeTrue();
     }
 
     [Fact]
@@ -109,6 +169,57 @@ public sealed class UseCaseRunnerTests : IAsyncDisposable
         _logger.Entries.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task RunAsync_ForbiddenResult_LogsWarningWithHandlerUserAndErrorCode()
+    {
+        // Arrange: a signed-in user without the required role.
+        SignIn(TestUsers.Reporter);
+
+        // Act
+        var result = await Runner.RunAsync(
+            (ProbeHandler _, CancellationToken _) => Task.FromResult<Result<Probe>>(AuthErrors.Forbidden), CancellationToken);
+
+        // Assert
+        result.Error.ShouldBe(AuthErrors.Forbidden);
+        var entry = _logger.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Exception.ShouldBeNull();
+        entry.Properties["Handler"].ShouldBe(nameof(ProbeHandler));
+        entry.Properties["UserId"].ShouldBe(TestUsers.UserId);
+        entry.Properties["ErrorCode"].ShouldBe(AuthErrors.Forbidden.Code);
+    }
+
+    [Fact]
+    public async Task RunAsync_SuccessfulResult_LogsNothing()
+    {
+        // Arrange
+        SignIn(TestUsers.Reporter);
+
+        // Act
+        var result = await Runner.RunAsync(
+            (ProbeHandler _, CancellationToken _) => Task.FromResult(Result.Success()), CancellationToken);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        _logger.Entries.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_FailureOtherThanForbidden_LogsNothing()
+    {
+        // Arrange: e.g. BR-02 answers a foreign ticket with NotFound; only Forbidden counts as a denied access here.
+        SignIn(TestUsers.Reporter);
+        var notFound = new Error("Test.NotFound", "Nem található.", ErrorType.NotFound);
+
+        // Act
+        var result = await Runner.RunAsync(
+            (ProbeHandler _, CancellationToken _) => Task.FromResult(Result.Failure(notFound)), CancellationToken);
+
+        // Assert
+        result.Error.ShouldBe(notFound);
+        _logger.Entries.ShouldBeEmpty();
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _circuitScope.DisposeAsync();
@@ -121,10 +232,12 @@ public sealed class UseCaseRunnerTests : IAsyncDisposable
     // A handler in the shape of the Application handlers: it gets ICurrentUser and a scoped dependency.
     private sealed class ProbeHandler(ICurrentUser currentUser, ScopedDependency dependency)
     {
+        public ScopedDependency Dependency => dependency;
+
         public Task<Probe> HandleAsync(CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            return Task.FromResult(new Probe(currentUser.UserId, currentUser.IsInRole(Roles.Admin), dependency));
+            return Task.FromResult(new Probe(currentUser.UserId, currentUser.IsInRole(Roles.Admin), currentUser, dependency));
         }
     }
 
@@ -135,5 +248,5 @@ public sealed class UseCaseRunnerTests : IAsyncDisposable
         public void Dispose() => IsDisposed = true;
     }
 
-    private sealed record Probe(string? UserId, bool IsAdmin, ScopedDependency Dependency);
+    private sealed record Probe(string? UserId, bool IsAdmin, ICurrentUser CurrentUser, ScopedDependency Dependency);
 }

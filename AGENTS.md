@@ -91,7 +91,7 @@ Függőségi szabályok (KÖTELEZŐ, az architektúra-tesztek ellenőrzik):
 - Feature-mappák, pl. `Tickets/CreateTicket/{CreateTicketCommand, CreateTicketHandler, CreateTicketValidator}.cs`; lekérdezésnél `…Query`, `…Handler`, `…Dto`.
 - Handler: `public sealed class XHandler` egyetlen `Task<Result<T>> HandleAsync(XCommand command, CancellationToken ct)` (vagy `Task<Result>`) metódussal. Mediator nincs. Az `AddApplication()` reflexióval scoped-ként regisztrál minden `*Handler` osztályt, és a validátorokat is.
 - Handler-sorrend: (1) autorizáció (8. szakasz), (2) validáció, (3) betöltés, (4) domain-művelet, (5) `IUnitOfWork.SaveChangesAsync`, (6) DTO visszaadása.
-- Portok: `ITicketRepository`, `IAgentRepository`, `ICategoryRepository`, `ICategorySuggestionRepository`, `IUnitOfWork`, `ITicketQueries`, `ICategorySuggester`, `ISuggestionRateLimiter`, `ICurrentUser`.
+- Portok: `ITicketRepository`, `IAgentRepository`, `ICategoryRepository`, `ICategorySuggestionRepository`, `IUnitOfWork`, `ITicketQueries`, `IUserQueries`, `ICategorySuggester`, `ISuggestionRateLimiter`, `ICurrentUser`.
 - Alkalmazásszintű hibák: `AuthErrors`, `GeneralErrors`, `AiErrors`.
 - Entitás nem hagyja el az Application réteget: a Web csak `record` DTO-t kap.
 - A közös kiosztási logika `TicketAssignmentService` (Application-szolgáltatás, nem handler).

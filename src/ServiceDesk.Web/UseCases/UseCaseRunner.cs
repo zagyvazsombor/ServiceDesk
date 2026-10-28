@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components.Authorization;
+using ServiceDesk.Domain.Common;
 
 namespace ServiceDesk.Web.UseCases;
 
@@ -20,10 +21,23 @@ public sealed class UseCaseRunner(
         await using var scope = scopeFactory.CreateAsyncScope();
         try
         {
-            scope.ServiceProvider.GetRequiredService<CurrentUser>().Initialize(authenticationState.User);
+            var currentUser = scope.ServiceProvider.GetRequiredService<CurrentUser>();
+            currentUser.Initialize(authenticationState.User);
             var handler = scope.ServiceProvider.GetRequiredService<THandler>();
 
-            return await useCase(handler, ct);
+            var result = await useCase(handler, ct);
+
+            // AGENTS.md §11: every denied access of a use case is logged here, once (Result<T> is also a Result).
+            if (result is Result { IsFailure: true } failure && failure.Error.Type == ErrorType.Forbidden)
+            {
+                logger.LogWarning(
+                    "Use case {Handler} denied access to user {UserId} with {ErrorCode}",
+                    typeof(THandler).Name,
+                    currentUser.UserId,
+                    failure.Error.Code);
+            }
+
+            return result;
         }
         // A cancellation requested by the caller (e.g. a disposed component) is not unexpected.
         catch (Exception exception) when (exception is not OperationCanceledException || !ct.IsCancellationRequested)

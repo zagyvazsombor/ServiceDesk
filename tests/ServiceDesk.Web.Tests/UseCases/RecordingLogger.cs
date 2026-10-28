@@ -2,10 +2,10 @@ using Microsoft.Extensions.Logging;
 
 namespace ServiceDesk.Web.Tests.UseCases;
 
-// Keeps the log entries in memory, so a test can check the level and the exception of what was logged.
+// Keeps the log entries in memory, so a test can check the level, the exception and the message template values.
 internal sealed class RecordingLogger<T> : ILogger<T>
 {
-    public List<(LogLevel Level, Exception? Exception)> Entries { get; } = [];
+    public List<LogEntry> Entries { get; } = [];
 
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
@@ -16,5 +16,12 @@ internal sealed class RecordingLogger<T> : ILogger<T>
         EventId eventId,
         TState state,
         Exception? exception,
-        Func<TState, Exception?, string> formatter) => Entries.Add((logLevel, exception));
+        Func<TState, Exception?, string> formatter)
+    {
+        // A message template call passes its named values as key-value pairs.
+        var properties = state is IEnumerable<KeyValuePair<string, object?>> values
+            ? values.ToDictionary(value => value.Key, value => value.Value)
+            : new Dictionary<string, object?>();
+        Entries.Add(new LogEntry(logLevel, exception, properties));
+    }
 }

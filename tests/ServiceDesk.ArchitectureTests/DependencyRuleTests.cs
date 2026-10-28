@@ -1,4 +1,6 @@
 using NetArchTest.Rules;
+using ServiceDesk.Infrastructure.Persistence;
+using ServiceDesk.Web.UseCases;
 using Shouldly;
 
 namespace ServiceDesk.ArchitectureTests;
@@ -95,6 +97,22 @@ public sealed class DependencyRuleTests
             .ResideInNamespaceStartingWith(PagesNamespace)
             .ShouldNot()
             .HaveDependencyOn(forbiddenNamespace)
+            .GetResult();
+
+        result.ShouldBeSuccessful();
+    }
+
+    // AGENTS.md §5, §7: a page gets the user and the DbContext only inside a use case, through the IUseCaseRunner.
+    [Theory]
+    [InlineData(typeof(CurrentUser))]
+    [InlineData(typeof(AppDbContext))]
+    public void WebPages_AllTypes_DoNotDependOnForbiddenType(Type forbiddenType)
+    {
+        var result = Types.InAssembly(SolutionAssemblies.Web)
+            .That()
+            .ResideInNamespaceStartingWith(PagesNamespace)
+            .ShouldNot()
+            .HaveDependencyOn(forbiddenType.FullName)
             .GetResult();
 
         result.ShouldBeSuccessful();

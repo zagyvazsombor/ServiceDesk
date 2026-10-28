@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using ServiceDesk.Application.Common.Persistence;
 using ServiceDesk.Infrastructure.Identity;
 using ServiceDesk.Infrastructure.Persistence;
+using ServiceDesk.Infrastructure.Persistence.Queries;
 using ServiceDesk.Infrastructure.Persistence.Repositories;
 using ServiceDesk.Infrastructure.Persistence.Seed;
 
@@ -27,6 +28,7 @@ public static class DependencyInjection
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<ICategorySuggestionRepository, CategorySuggestionRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddScoped<IUserQueries, UserQueries>();
         services.Configure<SeedOptions>(configuration.GetSection(SeedOptions.SectionName));
         services.AddScoped<DatabaseSeeder>();
 
