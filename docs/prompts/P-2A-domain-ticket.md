@@ -148,4 +148,4 @@ Mehet a megvalósítás.
 ## Emberi javítás
 Kézi kódmódosításra nem volt szükség.
 ## Commit
-feat(domain): implement rich domain model, state machine, priority matrix and domain tests
+feat(domain): implement rich domain model, state machine, priority matrix and domain tests (SHA: dff7747)
