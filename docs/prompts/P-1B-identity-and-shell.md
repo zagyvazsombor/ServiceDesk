@@ -166,4 +166,4 @@ Javítsd most a Register.razor hibát (return; az átirányítás után), és fr
 ## Emberi javítás
 Kézi forráskód-módosításra nem volt szükség. A Claude által jelzett Register.razor hibajavítást jóváhagytam, a felület és a regisztráció/megerősítés/bejelentkezés a böngészőben kézzel tesztelve hibátlanul működik.
 ## Commit
-feat(identity): move identity to infrastructure, setup initial migration and ui shell (SHA: b9955ec3)
+feat(identity): move identity to infrastructure, setup initial migration and ui shell (SHA: 8e3b4ab)
