@@ -37,10 +37,16 @@ public static class DependencyInjection
             })
             .AddIdentityCookies();
 
-        // Template Identity options; the AGENTS.md §8 settings are applied in a later step.
         services.AddIdentityCore<ApplicationUser>(options =>
             {
-                options.SignIn.RequireConfirmedAccount = true;
+                // AGENTS.md §8: no e-mail infrastructure, so accounts need no confirmation (ADR-005).
+                options.SignIn.RequireConfirmedAccount = false;
+                // AGENTS.md §8: at least 10 characters; the other password rules keep the template defaults.
+                options.Password.RequiredLength = 10;
+                // AGENTS.md §8: 5 failed attempts lock the account for 15 minutes.
+                options.Lockout.MaxFailedAccessAttempts = 5;
+                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+                options.Lockout.AllowedForNewUsers = true;
                 options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
             })
             // RoleManager for the seeded Reporter and Admin roles (AGENTS.md §7).

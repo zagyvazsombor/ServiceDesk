@@ -1,0 +1,14 @@
+@page "/tickets/{Id:guid}"
+@* Any signed-in user; BR-02 (own tickets only for a Reporter) is enforced by the use case of a later step. *@
+@attribute [Authorize]
+
+<PageTitle>Jegy részletei – ServiceDesk</PageTitle>
+
+<MudText Typo="Typo.h3" GutterBottom="true">Jegy részletei</MudText>
+<MudText Class="mb-4">Azonosító: @Id</MudText>
+<MudAlert Severity="Severity.Info">Ez az oldal egy későbbi lépésben készül el.</MudAlert>
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+}

@@ -1,0 +1,42 @@
+@using System.Security.Claims
+
+@implements IDisposable
+
+@inject NavigationManager NavigationManager
+
+<AuthorizeView>
+    <Authorized>
+        <MudButton Href="Account/Manage" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Person">
+            @(context.User.FindFirstValue(ClaimTypes.Email) ?? context.User.Identity?.Name)
+        </MudButton>
+        @* The logout endpoint of the template (MapAdditionalIdentityEndpoints) takes an antiforgery-protected POST. *@
+        <form action="Account/Logout" method="post">
+            <AntiforgeryToken />
+            <input type="hidden" name="ReturnUrl" value="@currentUrl" />
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Logout">
+                Kijelentkezés
+            </MudButton>
+        </form>
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    private string? currentUrl;
+
+    protected override void OnInitialized()
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(e.Location);
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+    }
+}

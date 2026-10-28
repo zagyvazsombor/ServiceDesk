@@ -87,7 +87,7 @@ internal sealed class DatabaseSeeder(
             var user = await userManager.FindByEmailAsync(seedUser.Email);
             if (user is null)
             {
-                // EmailConfirmed: there is no e-mail infrastructure, and the sign-in requires a confirmed account.
+                // EmailConfirmed: there is no e-mail infrastructure; the seeded addresses count as confirmed.
                 user = new ApplicationUser { UserName = seedUser.Email, Email = seedUser.Email, EmailConfirmed = true };
                 EnsureSucceeded(await userManager.CreateAsync(user, password));
                 created++;

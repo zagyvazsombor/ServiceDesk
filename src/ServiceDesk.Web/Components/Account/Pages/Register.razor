@@ -83,6 +83,17 @@
             return;
         }
 
+        // AGENTS.md §8: a self-registered user is always a Reporter; the role never comes from the client.
+        // Added before the sign-in, so the authentication cookie already carries the role.
+        var roleResult = await UserManager.AddToRoleAsync(user, Roles.Reporter);
+        if (!roleResult.Succeeded)
+        {
+            // No account may exist without a role, so the new user is removed again.
+            await UserManager.DeleteAsync(user);
+            identityErrors = roleResult.Errors;
+            return;
+        }
+
         Logger.LogInformation("User created a new account with password.");
 
         var userId = await UserManager.GetUserIdAsync(user);
@@ -136,7 +147,7 @@
         public string Email { get; set; } = "";
 
         [Required]
-        [StringLength(100, ErrorMessage = "The {0} must be at least {2} and at max {1} characters long.", MinimumLength = 6)]
+        [StringLength(100, ErrorMessage = "The {0} must be at least {2} and at max {1} characters long.", MinimumLength = 10)]
         [DataType(DataType.Password)]
         [Display(Name = "Password")]
         public string Password { get; set; } = "";

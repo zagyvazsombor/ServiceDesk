@@ -1,46 +1,22 @@
-﻿@implements IDisposable
-
-@inject NavigationManager NavigationManager
-
-<MudNavMenu>
+﻿<MudNavMenu>
     <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Kezdőlap</MudNavLink>
 
+    @* AGENTS.md §8: the menu only hides links; the pages and the use cases check the role themselves. *@
+    <AuthorizeView Roles="@Roles.Reporter">
+        <MudNavLink Href="tickets/new" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.AddCircleOutline">Új jegy</MudNavLink>
+        <MudNavLink Href="tickets/my" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.ListAlt">Saját jegyeim</MudNavLink>
+    </AuthorizeView>
+
+    <AuthorizeView Roles="@Roles.Admin">
+        <MudNavLink Href="admin/queue" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Inbox">Jegysor</MudNavLink>
+        <MudNavLink Href="admin/categories" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Category">Kategóriák</MudNavLink>
+        <MudNavLink Href="admin/agents" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.SupportAgent">Ügyintézők</MudNavLink>
+    </AuthorizeView>
+
     <AuthorizeView>
-        <Authorized>
-            <MudNavLink Href="Account/Manage" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Person">@context.User.Identity?.Name</MudNavLink>
-            <form action="Account/Logout" method="post">
-                <AntiforgeryToken />
-                <input type="hidden" name="ReturnUrl" value="@currentUrl" />
-                <button type="submit" class="mud-nav-link mud-ripple">
-                    <MudIcon Icon="@Icons.Material.Filled.Logout" Color="Color.Info" Class="mr-3"></MudIcon> Kijelentkezés
-                </button>
-            </form>
-        </Authorized>
         <NotAuthorized>
             <MudNavLink Href="Account/Register" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Person">Regisztráció</MudNavLink>
             <MudNavLink Href="Account/Login" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Password">Bejelentkezés</MudNavLink>
         </NotAuthorized>
     </AuthorizeView>
 </MudNavMenu>
-
-
-@code {
-    private string? currentUrl;
-
-    protected override void OnInitialized()
-    {
-        currentUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
-        NavigationManager.LocationChanged += OnLocationChanged;
-    }
-
-    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
-    {
-        currentUrl = NavigationManager.ToBaseRelativePath(e.Location);
-        StateHasChanged();
-    }
-
-    public void Dispose()
-    {
-        NavigationManager.LocationChanged -= OnLocationChanged;
-    }
-}

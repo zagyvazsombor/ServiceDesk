@@ -7,6 +7,7 @@ using ServiceDesk.Infrastructure.Identity;
 using ServiceDesk.Infrastructure.Persistence;
 using ServiceDesk.Web.Components;
 using ServiceDesk.Web.Components.Account;
+using ServiceDesk.Web.UseCases;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,6 +24,7 @@ builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuth
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddUseCaseRunner();
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
