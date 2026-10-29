@@ -19,6 +19,11 @@ public static class CategoryErrors
         "A leírás legfeljebb 500 karakter lehet.",
         ErrorType.Validation);
 
+    public static readonly Error NotFound = new(
+        "Category.NotFound",
+        "A kategória nem található.",
+        ErrorType.NotFound);
+
     public static readonly Error Inactive = new(
         "Category.Inactive",
         "Inaktív kategória nem választható.",

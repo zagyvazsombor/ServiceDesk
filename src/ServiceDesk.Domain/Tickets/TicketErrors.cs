@@ -24,6 +24,12 @@ public static class TicketErrors
         "Válassz érvényes sürgősséget.",
         ErrorType.Validation);
 
+    // BR-02: also the answer for a ticket of another reporter, so its existence is not revealed.
+    public static readonly Error NotFound = new(
+        "Ticket.NotFound",
+        "A jegy nem található.",
+        ErrorType.NotFound);
+
     public static readonly Error InvalidTransition = new(
         "Ticket.InvalidTransition",
         "A jegy jelenlegi állapotában ez a művelet nem hajtható végre.",

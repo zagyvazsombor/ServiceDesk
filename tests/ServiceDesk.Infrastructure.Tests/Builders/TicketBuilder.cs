@@ -11,6 +11,13 @@ internal sealed class TicketBuilder(ApplicationUser reporter, Category category)
     private Impact _impact = Impact.Medium;
     private Urgency _urgency = Urgency.Medium;
     private (TicketStatus Status, Agent Assignee, ApplicationUser Admin)? _target;
+    private DateTimeOffset _createdAt = TestTime.Now;
+
+    public TicketBuilder CreatedAt(DateTimeOffset createdAt)
+    {
+        _createdAt = createdAt;
+        return this;
+    }
 
     public TicketBuilder WithImpactAndUrgency(Impact impact, Urgency urgency)
     {
@@ -36,7 +43,7 @@ internal sealed class TicketBuilder(ApplicationUser reporter, Category category)
             _impact,
             _urgency,
             category,
-            TestTime.Now).Value;
+            _createdAt).Value;
         if (_target is not (var status, var assignee, var admin))
         {
             return ticket;
@@ -61,7 +68,7 @@ internal sealed class TicketBuilder(ApplicationUser reporter, Category category)
 
         for (var step = 0; step < stepCount; step++)
         {
-            steps[step](TestTime.Now.AddMinutes(step + 1)).EnsureSuccess();
+            steps[step](_createdAt.AddMinutes(step + 1)).EnsureSuccess();
         }
 
         return ticket;

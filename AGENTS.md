@@ -333,6 +333,7 @@ Terhelési súly: Critical 5, High 4, Medium 3, Low 2, Planning 1.
   - `ErrorType` értékei: `Validation`, `NotFound`, `Forbidden`, `Conflict`, `BusinessRule`, `Unavailable`.
   - A `Message` magyar, felhasználónak szóló szöveg; a `Code` formátuma `Ticket.ClosedCannotBeAssigned`.
 - Validációs hibánál a kód mezőnként `Validation.<Property>` alakú, hogy a UI a mezőhöz tudja rendelni.
+- Az `Error` opcionális, csak olvasható `FieldErrors` listát hordoz (mezőnév → üzenetek). Csak a `Validation` típusú hibák töltik ki (`Error.Validation(...)`, az Applicationben a `ValidatorExtensions.ValidateToResultAsync`), és minden hibás mezőt tartalmaz. A fő `Code` és `Message` az első hibáé (`Validation.<Property>`), így az egyetlen hibát olvasó hívók változatlanul működnek. Más hibatípusnál a lista üres.
 - A UI a `Message`-et `ISnackbar`-ral, a validációs hibákat a mezőknél mutatja.
 - Kivétel csak váratlan helyzetben keletkezik. A `UseCaseRunner` naplózza, a `MainLayout` `ErrorBoundary`-je általános üzenetet és „Újrapróbálás” gombot mutat.
 - Strukturált naplózás `ILogger` message template-tel; a naplóban string-interpoláció TILOS.

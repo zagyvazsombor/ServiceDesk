@@ -29,6 +29,7 @@ public static class DependencyInjection
         services.AddScoped<ICategorySuggestionRepository, CategorySuggestionRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IUserQueries, UserQueries>();
+        services.AddScoped<ITicketQueries, TicketQueries>();
         services.Configure<SeedOptions>(configuration.GetSection(SeedOptions.SectionName));
         services.AddScoped<DatabaseSeeder>();
 
