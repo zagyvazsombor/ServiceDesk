@@ -1,7 +1,81 @@
 @page "/tickets/my"
 @attribute [Authorize(Roles = Roles.Reporter)]
+@using ServiceDesk.Application.Tickets.GetMyTickets
+@using ServiceDesk.Web.Components.Tickets
+@using ServiceDesk.Web.UseCases
+
+@implements IDisposable
+
+@inject IUseCaseRunner Runner
+@inject ISnackbar Snackbar
+@inject NavigationManager NavigationManager
 
 <PageTitle>Saját jegyeim – ServiceDesk</PageTitle>
 
 <MudText Typo="Typo.h3" GutterBottom="true">Saját jegyeim</MudText>
-<MudAlert Severity="Severity.Info">Ez az oldal egy későbbi lépésben készül el.</MudAlert>
+
+@* The query sorts (newest first) and pages on the server; the grid only shows a page. *@
+<MudDataGrid T="MyTicketDto" ServerData="LoadPageAsync" RowsPerPage="GetMyTicketsQuery.PageSize"
+             RowClick="OpenTicket" Hover="true" RowStyle="cursor: pointer;"
+             SortMode="SortMode.None" Filterable="false">
+    <Columns>
+        <PropertyColumn Property="ticket => ticket.Title" Title="Cím" />
+        <TemplateColumn Title="Státusz">
+            <CellTemplate>
+                <TicketStatusChip Status="context.Item.Status" />
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Prioritás">
+            <CellTemplate>
+                <TicketPriorityChip Priority="context.Item.Priority" />
+            </CellTemplate>
+        </TemplateColumn>
+        <PropertyColumn Property="ticket => ticket.CategoryName" Title="Kategória" />
+        <TemplateColumn Title="Felelős">
+            <CellTemplate>@(context.Item.AssigneeName ?? TicketLabels.NoAssignee)</CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Létrehozva">
+            <CellTemplate>@TicketLabels.FormatDateTime(context.Item.CreatedAt)</CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <NoRecordsContent>
+        <MudText>Még nincs jegyed.</MudText>
+    </NoRecordsContent>
+    <LoadingContent>
+        <MudText>Betöltés…</MudText>
+    </LoadingContent>
+    <PagerContent>
+        <MudDataGridPager T="MyTicketDto" PageSizeSelector="false" InfoFormat="{first_item}–{last_item}, összesen {all_items}" />
+    </PagerContent>
+</MudDataGrid>
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+
+    private async Task<GridData<MyTicketDto>> LoadPageAsync(GridState<MyTicketDto> state, CancellationToken gridToken)
+    {
+        // The grid cancels its token when it loads another page; the component when it is disposed.
+        using var loadCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, gridToken);
+        // The grid counts the pages from 0, the query from 1.
+        var query = new GetMyTicketsQuery(state.Page + 1);
+        var result = await Runner.RunAsync(
+            (GetMyTicketsHandler handler, CancellationToken ct) => handler.HandleAsync(query, ct),
+            loadCts.Token);
+        if (result.IsFailure)
+        {
+            Snackbar.Add(result.Error.Message, Severity.Error);
+            return new GridData<MyTicketDto> { Items = [], TotalItems = 0 };
+        }
+
+        return new GridData<MyTicketDto> { Items = result.Value.Items, TotalItems = result.Value.TotalCount };
+    }
+
+    private void OpenTicket(DataGridRowClickEventArgs<MyTicketDto> args) =>
+        NavigationManager.NavigateTo($"tickets/{args.Item.Id}");
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

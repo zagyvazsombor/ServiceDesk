@@ -44,7 +44,7 @@ public sealed class GetMyTicketsHandlerTests
     {
         // Arrange
         var page = new PagedResult<MyTicketDto>(
-            [new MyTicketDto(Guid.CreateVersion7(), TestData.ValidTitle, "Hardver", Priority.Medium, TicketStatus.New, TestData.Now)],
+            [new MyTicketDto(Guid.CreateVersion7(), TestData.ValidTitle, "Hardver", null, Priority.Medium, TicketStatus.New, TestData.Now)],
             PageNumber: 2,
             PageSize: 20,
             TotalCount: 21);

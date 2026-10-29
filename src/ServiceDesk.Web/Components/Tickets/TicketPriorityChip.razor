@@ -1,0 +1,8 @@
+@using ServiceDesk.Domain.Tickets
+
+<MudChip T="string" Text="@TicketLabels.PriorityText(Priority)" Color="TicketLabels.PriorityColor(Priority)" Size="Size.Small" />
+
+@code {
+    [Parameter, EditorRequired]
+    public Priority Priority { get; set; }
+}

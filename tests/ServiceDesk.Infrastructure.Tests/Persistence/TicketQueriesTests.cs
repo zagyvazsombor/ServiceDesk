@@ -33,7 +33,33 @@ public sealed class TicketQueriesTests(DatabaseFixture database) : IntegrationTe
         page.Items.Select(ticket => ticket.Id).ShouldBe([newest.Id, middle.Id, oldest.Id]);
         page.TotalCount.ShouldBe(3);
         page.Items[0].ShouldBe(new MyTicketDto(
-            newest.Id, newest.Title, "Hardver", newest.Priority, TicketStatus.New, newest.CreatedAt));
+            newest.Id, newest.Title, "Hardver", null, newest.Priority, TicketStatus.New, newest.CreatedAt));
+    }
+
+    [Fact]
+    public async Task GetMyTicketsAsync_AssignedAndNewTicket_ReturnsAssigneeNameOnlyForAssigned()
+    {
+        // Arrange
+        var reporter = new UserBuilder().Build();
+        var annaUser = new UserBuilder().Build();
+        var hardware = new CategoryBuilder().Build();
+        var anna = new AgentBuilder(annaUser).WithDisplayName("Kiss Anna").WithCompetencies(hardware).Build();
+        var assigned = new TicketBuilder(reporter, hardware)
+            .CreatedAt(TestTime.Now.AddHours(1))
+            .InStatus(TicketStatus.Assigned, anna, annaUser)
+            .Build();
+        var unassigned = new TicketBuilder(reporter, hardware).CreatedAt(TestTime.Now).Build();
+        await SaveAsync(reporter, annaUser, hardware, anna, assigned, unassigned);
+
+        // Act
+        var page = await GetMyTicketsAsync(reporter.Id, pageNumber: 1, pageSize: 20);
+
+        // Assert
+        page.Items.Select(ticket => (ticket.Id, ticket.Status, ticket.AssigneeName)).ShouldBe(
+        [
+            (assigned.Id, TicketStatus.Assigned, "Kiss Anna"),
+            (unassigned.Id, TicketStatus.New, null),
+        ]);
     }
 
     [Fact]

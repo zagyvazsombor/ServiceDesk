@@ -1,14 +1,153 @@
 @page "/tickets/{Id:guid}"
-@* Any signed-in user; BR-02 (own tickets only for a Reporter) is enforced by the use case of a later step. *@
+@* Any signed-in user; the use case gives a Reporter only their own ticket (BR-02). *@
 @attribute [Authorize]
+@using ServiceDesk.Application.Tickets.GetTicketDetails
+@using ServiceDesk.Domain.Common
+@using ServiceDesk.Web.Components.Tickets
+@using ServiceDesk.Web.UseCases
+
+@implements IDisposable
+
+@inject IUseCaseRunner Runner
+@inject ISnackbar Snackbar
 
 <PageTitle>Jegy részletei – ServiceDesk</PageTitle>
 
-<MudText Typo="Typo.h3" GutterBottom="true">Jegy részletei</MudText>
-<MudText Class="mb-4">Azonosító: @Id</MudText>
-<MudAlert Severity="Severity.Info">Ez az oldal egy későbbi lépésben készül el.</MudAlert>
+@if (_loading)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+}
+else if (_details is { } ticket)
+{
+    <MudText id="ticket-title" Typo="Typo.h4" GutterBottom="true">@ticket.Title</MudText>
+    <MudStack Row="true" Spacing="2" Class="mb-4">
+        <TicketStatusChip Status="ticket.Status" />
+        <TicketPriorityChip Priority="ticket.Priority" />
+    </MudStack>
+
+    <MudPaper Class="pa-4 mb-4">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="4">
+                <MudText Typo="Typo.caption">Kategória</MudText>
+                <MudText>@ticket.CategoryName</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudText Typo="Typo.caption">Hatás</MudText>
+                <MudText>@TicketLabels.ImpactText(ticket.Impact)</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudText Typo="Typo.caption">Sürgősség</MudText>
+                <MudText>@TicketLabels.UrgencyText(ticket.Urgency)</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudText Typo="Typo.caption">Felelős</MudText>
+                <MudText id="ticket-assignee">@(ticket.AssigneeName ?? TicketLabels.NoAssignee)</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudText Typo="Typo.caption">Bejelentő</MudText>
+                @* A long e-mail address wraps instead of running into the next column. *@
+                <MudText Style="overflow-wrap: anywhere;">@ticket.ReporterEmail</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudText Typo="Typo.caption">Létrehozva</MudText>
+                <MudText>@TicketLabels.FormatDateTime(ticket.CreatedAt)</MudText>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <MudPaper Class="pa-4 mb-4">
+        <MudText Typo="Typo.h6" GutterBottom="true">Leírás</MudText>
+        @* AGENTS.md §6: plain text, encoded by Razor (no MarkupString); the line breaks of the reporter are kept. *@
+        <MudText id="ticket-description" Style="white-space: pre-wrap;">@ticket.Description</MudText>
+    </MudPaper>
+
+    <MudText Typo="Typo.h6" GutterBottom="true">Előzmények</MudText>
+    <MudTimeline TimelinePosition="TimelinePosition.Start">
+        @foreach (var entry in ticket.History)
+        {
+            <MudTimelineItem Size="Size.Small" Color="Color.Primary">
+                <MudText Typo="Typo.subtitle2">@TicketLabels.ActionText(entry.Action)</MudText>
+                @if (TicketLabels.HistoryChangeText(entry.Action, entry.OldValue, entry.NewValue) is { } change)
+                {
+                    <MudText Typo="Typo.body2">@change</MudText>
+                }
+                <MudText Typo="Typo.caption">@(entry.ActorName ?? "Rendszer") · @TicketLabels.FormatDateTime(entry.At)</MudText>
+            </MudTimelineItem>
+        }
+    </MudTimeline>
+}
+else if (_notFound)
+{
+    @* BR-02: a ticket of another reporter looks the same as a missing one. *@
+    <MudAlert id="ticket-not-found" Severity="Severity.Info" Class="mb-4">
+        A jegy nem található. Lehet, hogy hibás a hivatkozás, vagy nincs jogosultságod a megtekintéséhez.
+    </MudAlert>
+    <AuthorizeView Roles="@Roles.Reporter">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="tickets/my">Vissza a jegyeimhez</MudButton>
+    </AuthorizeView>
+    <AuthorizeView Roles="@Roles.Admin">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="admin/queue">Vissza a jegysorhoz</MudButton>
+    </AuthorizeView>
+}
+else
+{
+    <MudAlert Severity="Severity.Error">A jegy nem tölthető be.</MudAlert>
+}
 
 @code {
+    // The load in progress; null when none is running.
+    private CancellationTokenSource? _loadCts;
+    private TicketDetailsDto? _details;
+    private bool _loading = true;
+    private bool _notFound;
+
     [Parameter]
     public Guid Id { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Every load cancels the previous one, so a stale answer cannot overwrite a newer one.
+        _loadCts?.Cancel();
+        using var loadCts = new CancellationTokenSource();
+        _loadCts = loadCts;
+        _loading = true;
+        _details = null;
+        _notFound = false;
+
+        try
+        {
+            var query = new GetTicketDetailsQuery(Id);
+            var result = await Runner.RunAsync(
+                (GetTicketDetailsHandler handler, CancellationToken ct) => handler.HandleAsync(query, ct),
+                loadCts.Token);
+            if (loadCts.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _loading = false;
+            if (result.IsSuccess)
+            {
+                _details = result.Value;
+            }
+            else if (result.Error.Type == ErrorType.NotFound)
+            {
+                _notFound = true;
+            }
+            else
+            {
+                Snackbar.Add(result.Error.Message, Severity.Error);
+            }
+        }
+        finally
+        {
+            // The source is disposed with this load; a later load or Dispose must not cancel it any more.
+            if (_loadCts == loadCts)
+            {
+                _loadCts = null;
+            }
+        }
+    }
+
+    public void Dispose() => _loadCts?.Cancel();
 }

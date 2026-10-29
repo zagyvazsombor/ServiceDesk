@@ -1,0 +1,8 @@
+@using ServiceDesk.Domain.Tickets
+
+<MudChip T="string" Text="@TicketLabels.StatusText(Status)" Color="TicketLabels.StatusColor(Status)" Size="Size.Small" />
+
+@code {
+    [Parameter, EditorRequired]
+    public TicketStatus Status { get; set; }
+}

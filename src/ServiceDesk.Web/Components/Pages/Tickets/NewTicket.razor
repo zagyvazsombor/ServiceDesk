@@ -1,7 +1,197 @@
 @page "/tickets/new"
 @attribute [Authorize(Roles = Roles.Reporter)]
+@using ServiceDesk.Application.Tickets.CreateTicket
+@using ServiceDesk.Application.Tickets.GetActiveCategories
+@using ServiceDesk.Domain.Common
+@using ServiceDesk.Domain.Tickets
+@using ServiceDesk.Web.Components.Tickets
+@using ServiceDesk.Web.UseCases
+
+@implements IDisposable
+
+@inject IUseCaseRunner Runner
+@inject ISnackbar Snackbar
+@inject NavigationManager NavigationManager
 
 <PageTitle>Új jegy – ServiceDesk</PageTitle>
 
 <MudText Typo="Typo.h3" GutterBottom="true">Új jegy</MudText>
-<MudAlert Severity="Severity.Info">Ez az oldal egy későbbi lépésben készül el.</MudAlert>
+
+@if (_categories is null)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+}
+else
+{
+    @if (_categories.Count == 0)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-4">Jelenleg nincs választható kategória, ezért jegy nem rögzíthető.</MudAlert>
+    }
+
+    <MudPaper Class="pa-4" MaxWidth="800px">
+        <MudForm @ref="_form">
+            <MudTextField T="string" @bind-Value="_title" @bind-Value:after="() => ClearFieldError(TitleField)"
+                          Label="Cím" Required="true" RequiredError="Add meg a jegy címét."
+                          MaxLength="Ticket.TitleMaxLength" Counter="Ticket.TitleMaxLength"
+                          Error="HasFieldError(TitleField)" ErrorText="@FieldErrorText(TitleField)" />
+
+            <MudTextField T="string" @bind-Value="_description" @bind-Value:after="() => ClearFieldError(DescriptionField)"
+                          Label="Leírás" Lines="6" Sizing="InputSizing.Auto" MaxLines="20"
+                          Required="true" RequiredError="Írd le a problémát."
+                          MaxLength="Ticket.DescriptionMaxLength" Counter="Ticket.DescriptionMaxLength"
+                          Error="HasFieldError(DescriptionField)" ErrorText="@FieldErrorText(DescriptionField)" />
+
+            <MudSelect T="Impact?" @bind-Value="_impact" @bind-Value:after="() => ClearFieldError(ImpactField)"
+                       Label="Hatás" Required="true" RequiredError="Válaszd ki a hatást."
+                       ToStringFunc="@(impact => impact is { } value ? TicketLabels.ImpactText(value) : string.Empty)"
+                       Error="HasFieldError(ImpactField)" ErrorText="@FieldErrorText(ImpactField)">
+                @foreach (var impact in Enum.GetValues<Impact>())
+                {
+                    <MudSelectItem T="Impact?" Value="impact">@TicketLabels.ImpactText(impact)</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudSelect T="Urgency?" @bind-Value="_urgency" @bind-Value:after="() => ClearFieldError(UrgencyField)"
+                       Label="Sürgősség" Required="true" RequiredError="Válaszd ki a sürgősséget."
+                       ToStringFunc="@(urgency => urgency is { } value ? TicketLabels.UrgencyText(value) : string.Empty)"
+                       Error="HasFieldError(UrgencyField)" ErrorText="@FieldErrorText(UrgencyField)">
+                @foreach (var urgency in Enum.GetValues<Urgency>())
+                {
+                    <MudSelectItem T="Urgency?" Value="urgency">@TicketLabels.UrgencyText(urgency)</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudSelect T="Guid?" @bind-Value="_categoryId" @bind-Value:after="() => ClearFieldError(CategoryField)"
+                       Label="Kategória" Required="true" RequiredError="Válassz kategóriát."
+                       ToStringFunc="CategoryName" HelperText="@SelectedCategory?.Description"
+                       Error="HasFieldError(CategoryField)" ErrorText="@FieldErrorText(CategoryField)">
+                @foreach (var category in _categories)
+                {
+                    <MudSelectItem T="Guid?" Value="category.Id">@category.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudForm>
+
+        @if (ExpectedPriority is { } priority)
+        {
+            <MudAlert id="expected-priority" Severity="Severity.Info" Dense="true" Class="mt-4">
+                Várható prioritás: <b>@TicketLabels.PriorityText(priority)</b>. A rendszer a hatásból és a sürgősségből számítja.
+            </MudAlert>
+        }
+
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" Disabled="_submitting" OnClick="SubmitAsync">
+            Jegy rögzítése
+        </MudButton>
+    </MudPaper>
+}
+
+@code {
+    // The property names of the command, as the keys of Error.FieldErrors (AGENTS.md §11).
+    private const string TitleField = nameof(CreateTicketCommand.Title);
+    private const string DescriptionField = nameof(CreateTicketCommand.Description);
+    private const string ImpactField = nameof(CreateTicketCommand.Impact);
+    private const string UrgencyField = nameof(CreateTicketCommand.Urgency);
+    private const string CategoryField = nameof(CreateTicketCommand.CategoryId);
+
+    private static readonly HashSet<string> FormFields =
+        [TitleField, DescriptionField, ImpactField, UrgencyField, CategoryField];
+
+    private readonly CancellationTokenSource _cts = new();
+    private Dictionary<string, IReadOnlyList<string>> _fieldErrors = new(StringComparer.Ordinal);
+    private IReadOnlyList<ActiveCategoryDto>? _categories;
+    private MudForm? _form;
+    private bool _submitting;
+
+    private string _title = string.Empty;
+    private string _description = string.Empty;
+    private Impact? _impact;
+    private Urgency? _urgency;
+    private Guid? _categoryId;
+
+    // BR-11: for information only, from the matrix of the domain; the ticket gets its priority from Ticket.Create.
+    private Priority? ExpectedPriority =>
+        _impact is { } impact && _urgency is { } urgency ? PriorityMatrix.Calculate(impact, urgency) : null;
+
+    private ActiveCategoryDto? SelectedCategory => _categories?.FirstOrDefault(category => category.Id == _categoryId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await Runner.RunAsync(
+            (GetActiveCategoriesHandler handler, CancellationToken ct) => handler.HandleAsync(new GetActiveCategoriesQuery(), ct),
+            _cts.Token);
+        if (result.IsFailure)
+        {
+            Snackbar.Add(result.Error.Message, Severity.Error);
+            _categories = [];
+            return;
+        }
+
+        _categories = result.Value;
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_form is null || _submitting)
+        {
+            return;
+        }
+
+        // The errors of the previous answer do not block a new attempt; the form checks the required fields again.
+        _fieldErrors = new(StringComparer.Ordinal);
+        await _form.ValidateAsync();
+        if (!_form.IsValid)
+        {
+            return;
+        }
+
+        _submitting = true;
+        try
+        {
+            var command = new CreateTicketCommand(_title, _description, _impact, _urgency, _categoryId ?? Guid.Empty);
+            var result = await Runner.RunAsync(
+                (CreateTicketHandler handler, CancellationToken ct) => handler.HandleAsync(command, ct),
+                _cts.Token);
+            if (result.IsSuccess)
+            {
+                Snackbar.Add("A jegy rögzítve.", Severity.Success);
+                NavigationManager.NavigateTo($"tickets/{result.Value}");
+                return;
+            }
+
+            ShowError(result.Error);
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    // AGENTS.md §11: the validation errors appear at their fields, any other message in a Snackbar.
+    private void ShowError(Error error)
+    {
+        _fieldErrors = error.FieldErrors
+            .Where(field => FormFields.Contains(field.Key))
+            .ToDictionary(field => field.Key, field => field.Value, StringComparer.Ordinal);
+
+        if (_fieldErrors.Count == 0 || _fieldErrors.Count < error.FieldErrors.Count)
+        {
+            Snackbar.Add(error.Message, Severity.Error);
+        }
+    }
+
+    private bool HasFieldError(string field) => _fieldErrors.ContainsKey(field);
+
+    private string? FieldErrorText(string field) =>
+        _fieldErrors.TryGetValue(field, out var messages) ? string.Join(" ", messages) : null;
+
+    private void ClearFieldError(string field) => _fieldErrors.Remove(field);
+
+    private string CategoryName(Guid? categoryId) =>
+        _categories?.FirstOrDefault(category => category.Id == categoryId)?.Name ?? string.Empty;
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

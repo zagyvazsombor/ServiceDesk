@@ -32,10 +32,15 @@ internal sealed class TicketQueries(AppDbContext dbContext) : ITicketQueries
             .ThenByDescending(row => row.Ticket.Id)
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
+            // The assignee name is a subquery of the same SQL statement, as in GetTicketDetailsAsync (no N+1).
             .Select(row => new MyTicketDto(
                 row.Ticket.Id,
                 row.Ticket.Title,
                 row.CategoryName,
+                dbContext.Agents
+                    .Where(agent => agent.Id == row.Ticket.AssigneeAgentId)
+                    .Select(agent => agent.DisplayName)
+                    .FirstOrDefault(),
                 row.Ticket.Priority,
                 row.Ticket.Status,
                 row.Ticket.CreatedAt))
