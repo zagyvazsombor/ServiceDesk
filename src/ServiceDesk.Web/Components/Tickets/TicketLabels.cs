@@ -107,6 +107,9 @@ public static class TicketLabels
         };
     }
 
+    // An inactive category or agent can still be on tickets (BR-12, BR-13), so it stays selectable with a marker.
+    public static string NameWithActiveState(string name, bool isActive) => isActive ? name : $"{name} (inaktív)";
+
     public static string FormatDateTime(DateTimeOffset value) =>
         TimeZoneInfo.ConvertTime(value, BudapestTimeZone).ToString("g", HungarianCulture);
 

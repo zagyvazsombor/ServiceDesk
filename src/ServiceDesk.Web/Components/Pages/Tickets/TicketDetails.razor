@@ -55,6 +55,10 @@ else if (_details is { } ticket)
         </MudGrid>
     </MudPaper>
 
+    <AuthorizeView Roles="@Roles.Admin">
+        <TicketAdminPanel Ticket="ticket" OnChanged="LoadAsync" />
+    </AuthorizeView>
+
     <MudPaper Class="pa-4 mb-4">
         <MudText Typo="Typo.h6" GutterBottom="true">Leírás</MudText>
         @* AGENTS.md §6: plain text, encoded by Razor (no MarkupString); the line breaks of the reporter are kept. *@
@@ -104,7 +108,10 @@ else
     [Parameter]
     public Guid Id { get; set; }
 
-    protected override async Task OnParametersSetAsync()
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    // Also called by the Admin panel after an operation and from the Snackbar of a conflict.
+    private async Task LoadAsync()
     {
         // Every load cancels the previous one, so a stale answer cannot overwrite a newer one.
         _loadCts?.Cancel();

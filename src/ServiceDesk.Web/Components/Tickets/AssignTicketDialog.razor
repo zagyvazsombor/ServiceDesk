@@ -1,0 +1,58 @@
+@using ServiceDesk.Application.Tickets.GetAssignableAgents
+
+@* Only offers the candidates of GetAssignableAgents; AssignTicketManually checks BR-03 and BR-04 again on save. *@
+<MudDialog>
+    <DialogContent>
+        @if (Agents.Count == 0)
+        {
+            @* BR-06: nobody is eligible for the category of the ticket. *@
+            <MudAlert id="no-assignable-agents" Severity="Severity.Warning" Dense="true">
+                Nincs aktív ügyintéző, akinek a kompetenciái között szerepel a jegy kategóriája.
+            </MudAlert>
+        }
+        else
+        {
+            <MudSelect T="Guid?" @bind-Value="_agentId" Label="Ügyintéző" ToStringFunc="AgentText"
+                       HelperText="A jegy kategóriájára jogosult, aktív ügyintézők; a legkisebb terhelésű áll elöl.">
+                @foreach (var agent in Agents)
+                {
+                    <MudSelectItem T="Guid?" Value="agent.AgentId" Disabled="agent.IsCurrentAssignee">@AgentText(agent)</MudSelectItem>
+                }
+            </MudSelect>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Mégse</MudButton>
+        <MudButton id="assign-submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="_agentId is null" OnClick="Submit">
+            Kiosztás
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private Guid? _agentId;
+
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    // Least loaded first (BR-05); the current assignee is listed but cannot be chosen again.
+    [Parameter, EditorRequired]
+    public IReadOnlyList<AssignableAgentDto> Agents { get; set; } = [];
+
+    private string AgentText(Guid? agentId) =>
+        Agents.FirstOrDefault(agent => agent.AgentId == agentId) is { } agent ? AgentText(agent) : string.Empty;
+
+    private static string AgentText(AssignableAgentDto agent) =>
+        $"{agent.DisplayName} – terhelés: {agent.Load}, nyitott jegy: {agent.OpenTicketCount}"
+        + (agent.IsCurrentAssignee ? " (jelenlegi felelős)" : string.Empty);
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void Submit()
+    {
+        if (_agentId is { } agentId)
+        {
+            MudDialog.Close(DialogResult.Ok(agentId));
+        }
+    }
+}

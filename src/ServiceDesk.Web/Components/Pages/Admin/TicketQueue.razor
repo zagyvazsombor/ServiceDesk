@@ -1,7 +1,199 @@
 @page "/admin/queue"
 @attribute [Authorize(Roles = Roles.Admin)]
+@using ServiceDesk.Application.Tickets.GetTicketQueue
+@using ServiceDesk.Application.Tickets.GetTicketQueueFilters
+@using ServiceDesk.Domain.Tickets
+@using ServiceDesk.Web.Components.Tickets
+@using ServiceDesk.Web.UseCases
+
+@implements IDisposable
+
+@inject IUseCaseRunner Runner
+@inject ISnackbar Snackbar
+@inject NavigationManager NavigationManager
 
 <PageTitle>Jegysor – ServiceDesk</PageTitle>
 
 <MudText Typo="Typo.h3" GutterBottom="true">Jegysor</MudText>
-<MudAlert Severity="Severity.Info">Ez az oldal egy későbbi lépésben készül el.</MudAlert>
+
+<MudPaper Class="pa-4 mb-4">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="6" md="3">
+            @* The Closed status is offered only together with the closed tickets (see GetTicketQueueValidator). *@
+            <MudSelect T="TicketStatus?" @bind-Value="_status" @bind-Value:after="ReloadFromFirstPage"
+                       Label="Státusz" Clearable="true"
+                       ToStringFunc="@(status => status is { } value ? TicketLabels.StatusText(value) : string.Empty)">
+                @foreach (var status in Enum.GetValues<TicketStatus>().Where(status => _includeClosed || status != TicketStatus.Closed))
+                {
+                    <MudSelectItem T="TicketStatus?" Value="status">@TicketLabels.StatusText(status)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="Guid?" @bind-Value="_categoryId" @bind-Value:after="ReloadFromFirstPage"
+                       Label="Kategória" Clearable="true" ToStringFunc="CategoryText">
+                @foreach (var category in _filters.Categories)
+                {
+                    <MudSelectItem T="Guid?" Value="category.Id">@TicketLabels.NameWithActiveState(category.Name, category.IsActive)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="Priority?" @bind-Value="_priority" @bind-Value:after="ReloadFromFirstPage"
+                       Label="Prioritás" Clearable="true"
+                       ToStringFunc="@(priority => priority is { } value ? TicketLabels.PriorityText(value) : string.Empty)">
+                @foreach (var priority in Enum.GetValues<Priority>())
+                {
+                    <MudSelectItem T="Priority?" Value="priority">@TicketLabels.PriorityText(priority)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="Guid?" @bind-Value="_assigneeAgentId" @bind-Value:after="ReloadFromFirstPage"
+                       Label="Felelős" Clearable="true" Disabled="_unassignedOnly" ToStringFunc="AgentText">
+                @foreach (var agent in _filters.Agents)
+                {
+                    <MudSelectItem T="Guid?" Value="agent.Id">@TicketLabels.NameWithActiveState(agent.Name, agent.IsActive)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12">
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="4">
+                <MudSwitch T="bool" @bind-Value="_unassignedOnly" @bind-Value:after="UnassignedOnlyChanged"
+                           Label="Csak kiosztatlan" Color="Color.Primary" />
+                <MudSwitch T="bool" @bind-Value="_includeClosed" @bind-Value:after="IncludeClosedChanged"
+                           Label="Lezártak is" Color="Color.Primary" />
+            </MudStack>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@* The query filters, sorts (priority, then oldest first) and pages on the server. A new key recreates the grid when a
+   filter changes, so the list starts again from the first page. *@
+<MudDataGrid @key="_gridKey" T="TicketQueueItemDto" ServerData="LoadPageAsync" RowsPerPage="GetTicketQueueQuery.PageSize"
+             RowClick="OpenTicket" Hover="true" RowStyle="cursor: pointer;"
+             SortMode="SortMode.None" Filterable="false">
+    <Columns>
+        <PropertyColumn Property="ticket => ticket.Title" Title="Cím" />
+        <TemplateColumn Title="Státusz">
+            <CellTemplate>
+                <TicketStatusChip Status="context.Item.Status" />
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Prioritás">
+            <CellTemplate>
+                <TicketPriorityChip Priority="context.Item.Priority" />
+            </CellTemplate>
+        </TemplateColumn>
+        <PropertyColumn Property="ticket => ticket.CategoryName" Title="Kategória" />
+        <TemplateColumn Title="Felelős">
+            <CellTemplate>@(context.Item.AssigneeName ?? TicketLabels.NoAssignee)</CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Bejelentő">
+            <CellTemplate>
+                @* A long e-mail address wraps instead of widening the table. *@
+                <span style="overflow-wrap: anywhere;">@context.Item.ReporterEmail</span>
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Létrehozva">
+            <CellTemplate>@TicketLabels.FormatDateTime(context.Item.CreatedAt)</CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <NoRecordsContent>
+        <MudText>Nincs a szűrőknek megfelelő jegy.</MudText>
+    </NoRecordsContent>
+    <LoadingContent>
+        <MudText>Betöltés…</MudText>
+    </LoadingContent>
+    <PagerContent>
+        <MudDataGridPager T="TicketQueueItemDto" PageSizeSelector="false" InfoFormat="{first_item}–{last_item}, összesen {all_items}" />
+    </PagerContent>
+</MudDataGrid>
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+    private TicketQueueFiltersDto _filters = new([], []);
+    private int _gridKey;
+
+    private TicketStatus? _status;
+    private Guid? _categoryId;
+    private Priority? _priority;
+    private Guid? _assigneeAgentId;
+    private bool _unassignedOnly;
+    private bool _includeClosed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await Runner.RunAsync(
+            (GetTicketQueueFiltersHandler handler, CancellationToken ct) => handler.HandleAsync(new GetTicketQueueFiltersQuery(), ct),
+            _cts.Token);
+        if (result.IsFailure)
+        {
+            Snackbar.Add(result.Error.Message, Severity.Error);
+            return;
+        }
+
+        _filters = result.Value;
+    }
+
+    private async Task<GridData<TicketQueueItemDto>> LoadPageAsync(GridState<TicketQueueItemDto> state, CancellationToken gridToken)
+    {
+        // The grid cancels its token when it loads another page; the component when it is disposed.
+        using var loadCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, gridToken);
+        // The grid counts the pages from 0, the query from 1.
+        var query = new GetTicketQueueQuery(
+            state.Page + 1, _status, _categoryId, _priority, _assigneeAgentId, _unassignedOnly, _includeClosed);
+        var result = await Runner.RunAsync(
+            (GetTicketQueueHandler handler, CancellationToken ct) => handler.HandleAsync(query, ct),
+            loadCts.Token);
+        if (result.IsFailure)
+        {
+            Snackbar.Add(result.Error.Message, Severity.Error);
+            return new GridData<TicketQueueItemDto> { Items = [], TotalItems = 0 };
+        }
+
+        return new GridData<TicketQueueItemDto> { Items = result.Value.Items, TotalItems = result.Value.TotalCount };
+    }
+
+    // The query does not take an assignee together with the unassigned filter.
+    private void UnassignedOnlyChanged()
+    {
+        if (_unassignedOnly)
+        {
+            _assigneeAgentId = null;
+        }
+
+        ReloadFromFirstPage();
+    }
+
+    // Without the closed tickets the Closed status is not offered any more.
+    private void IncludeClosedChanged()
+    {
+        if (!_includeClosed && _status == TicketStatus.Closed)
+        {
+            _status = null;
+        }
+
+        ReloadFromFirstPage();
+    }
+
+    private void ReloadFromFirstPage() => _gridKey++;
+
+    private string CategoryText(Guid? categoryId) => OptionText(_filters.Categories, categoryId);
+
+    private string AgentText(Guid? agentId) => OptionText(_filters.Agents, agentId);
+
+    private static string OptionText(IReadOnlyList<QueueFilterOptionDto> options, Guid? id) =>
+        options.FirstOrDefault(option => option.Id == id) is { } option
+            ? TicketLabels.NameWithActiveState(option.Name, option.IsActive)
+            : string.Empty;
+
+    private void OpenTicket(DataGridRowClickEventArgs<TicketQueueItemDto> args) =>
+        NavigationManager.NavigateTo($"tickets/{args.Item.Id}");
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

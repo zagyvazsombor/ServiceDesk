@@ -1,0 +1,357 @@
+@using ServiceDesk.Application.Common.Errors
+@using ServiceDesk.Application.Tickets.AssignTicketManually
+@using ServiceDesk.Application.Tickets.ChangeImpactAndUrgency
+@using ServiceDesk.Application.Tickets.CloseTicket
+@using ServiceDesk.Application.Tickets.GetActiveCategories
+@using ServiceDesk.Application.Tickets.GetAssignableAgents
+@using ServiceDesk.Application.Tickets.GetTicketDetails
+@using ServiceDesk.Application.Tickets.RecategorizeTicket
+@using ServiceDesk.Application.Tickets.ReopenTicket
+@using ServiceDesk.Application.Tickets.ResolveTicket
+@using ServiceDesk.Application.Tickets.RetryAutoAssign
+@using ServiceDesk.Application.Tickets.StartWork
+@using ServiceDesk.Domain.Common
+@using ServiceDesk.Domain.Tickets
+@using ServiceDesk.Web.UseCases
+
+@implements IDisposable
+
+@inject IUseCaseRunner Runner
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+@* AGENTS.md §8: the panel only hides what TicketWorkflow does not allow; every use case checks the role and the rules
+   again, so a stale page cannot do more than the Admin use cases. *@
+<MudPaper id="admin-panel" Class="pa-4 mb-4">
+    <MudText Typo="Typo.h6" GutterBottom="true">Ügyintézés</MudText>
+
+    @if (TicketWorkflow.IsTerminal(Ticket.Status))
+    {
+        @* BR-03 *@
+        <MudAlert id="ticket-closed" Severity="Severity.Info" Dense="true">
+            A jegy lezárva: nem osztható ki, és az adatai nem módosíthatók.
+        </MudAlert>
+    }
+
+    @if (TicketWorkflow.CanChangeImpactAndUrgency(Ticket.Status))
+    {
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="4">
+                <MudSelect T="Impact" @bind-Value="_impact" @bind-Value:after="() => ClearFieldError(ImpactField)" Label="Hatás"
+                           ToStringFunc="@(impact => TicketLabels.ImpactText(impact))"
+                           Error="HasFieldError(ImpactField)" ErrorText="@FieldErrorText(ImpactField)">
+                    @foreach (var impact in Enum.GetValues<Impact>())
+                    {
+                        <MudSelectItem T="Impact" Value="impact">@TicketLabels.ImpactText(impact)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudSelect T="Urgency" @bind-Value="_urgency" @bind-Value:after="() => ClearFieldError(UrgencyField)" Label="Sürgősség"
+                           ToStringFunc="@(urgency => TicketLabels.UrgencyText(urgency))"
+                           Error="HasFieldError(UrgencyField)" ErrorText="@FieldErrorText(UrgencyField)">
+                    @foreach (var urgency in Enum.GetValues<Urgency>())
+                    {
+                        <MudSelectItem T="Urgency" Value="urgency">@TicketLabels.UrgencyText(urgency)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudText Typo="Typo.caption">Prioritás mentés után</MudText>
+                <div id="priority-preview">
+                    <TicketPriorityChip Priority="PriorityPreview" />
+                </div>
+            </MudItem>
+        </MudGrid>
+        <MudButton id="action-save-triage" Variant="Variant.Filled" Color="Color.Primary" Class="mt-2"
+                   Disabled="_busy || !TriageChanged" OnClick="SaveTriageAsync">
+            Besorolás mentése
+        </MudButton>
+    }
+
+    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" Class="mt-4">
+        @if (TicketWorkflow.CanStart(Ticket.Status))
+        {
+            <MudButton id="action-start" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="StartWorkAsync">
+                Munka megkezdése
+            </MudButton>
+        }
+        @if (TicketWorkflow.CanResolve(Ticket.Status))
+        {
+            <MudButton id="action-resolve" Variant="Variant.Filled" Color="Color.Success" Disabled="_busy" OnClick="ResolveAsync">
+                Megoldás
+            </MudButton>
+        }
+        @if (TicketWorkflow.CanReopen(Ticket.Status))
+        {
+            <MudButton id="action-reopen" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="ReopenAsync">
+                Újranyitás
+            </MudButton>
+        }
+        @if (TicketWorkflow.CanClose(Ticket.Status))
+        {
+            <MudButton id="action-close" Variant="Variant.Filled" Color="Color.Error" Disabled="_busy" OnClick="CloseAsync">
+                Lezárás
+            </MudButton>
+        }
+        @if (TicketWorkflow.CanAssign(Ticket.Status))
+        {
+            <MudButton id="action-assign" Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="AssignAsync">
+                @AssignText
+            </MudButton>
+        }
+        @if (TicketWorkflow.CanRecategorize(Ticket.Status))
+        {
+            <MudButton id="action-recategorize" Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="RecategorizeAsync">
+                Átkategorizálás
+            </MudButton>
+        }
+        @if (TicketWorkflow.CanRetryAutoAssign(Ticket.Status))
+        {
+            @* BR-06: a New ticket never has an assignee. *@
+            <MudButton id="action-retry-auto-assign" Variant="Variant.Outlined" Color="Color.Secondary" Disabled="_busy" OnClick="RetryAutoAssignAsync">
+                Automatikus kiosztás újra
+            </MudButton>
+        }
+    </MudStack>
+</MudPaper>
+
+@code {
+    // The property names of the triage command, as the keys of Error.FieldErrors (AGENTS.md §11).
+    private const string ImpactField = nameof(ChangeImpactAndUrgencyCommand.Impact);
+    private const string UrgencyField = nameof(ChangeImpactAndUrgencyCommand.Urgency);
+
+    private static readonly HashSet<string> TriageFields = [ImpactField, UrgencyField];
+
+    private static readonly DialogOptions DialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
+
+    private readonly CancellationTokenSource _cts = new();
+    private Dictionary<string, IReadOnlyList<string>> _fieldErrors = new(StringComparer.Ordinal);
+    private TicketDetailsDto? _shownTicket;
+    private Impact _impact;
+    private Urgency _urgency;
+    private bool _busy;
+
+    [Parameter, EditorRequired]
+    public TicketDetailsDto Ticket { get; set; } = default!;
+
+    // Asks the page to load the ticket again: after a successful operation and from the Snackbar of a conflict.
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    // BR-11: for information only, from the matrix of the domain; the use case recalculates the priority.
+    private Priority PriorityPreview => PriorityMatrix.Calculate(_impact, _urgency);
+
+    private bool TriageChanged => _impact != Ticket.Impact || _urgency != Ticket.Urgency;
+
+    private string AssignText => Ticket.AssigneeName is null ? "Kiosztás" : "Átosztás";
+
+    protected override void OnParametersSet()
+    {
+        // A newly loaded ticket resets the triage fields; another render of the page keeps the unsaved choice.
+        if (!ReferenceEquals(Ticket, _shownTicket))
+        {
+            _shownTicket = Ticket;
+            _impact = Ticket.Impact;
+            _urgency = Ticket.Urgency;
+            _fieldErrors = new(StringComparer.Ordinal);
+        }
+    }
+
+    private Task SaveTriageAsync() => RunExclusiveAsync(token =>
+    {
+        _fieldErrors = new(StringComparer.Ordinal);
+        var command = new ChangeImpactAndUrgencyCommand(Ticket.Id, _impact, _urgency);
+        return RunCommandAsync(
+            (ChangeImpactAndUrgencyHandler handler, CancellationToken ct) => handler.HandleAsync(command, ct),
+            "A besorolás mentve.",
+            token);
+    });
+
+    private Task StartWorkAsync() => RunExclusiveAsync(token => RunCommandAsync(
+        (StartWorkHandler handler, CancellationToken ct) => handler.HandleAsync(new StartWorkCommand(Ticket.Id), ct),
+        "A munka megkezdődött.",
+        token));
+
+    private Task ResolveAsync() => RunExclusiveAsync(token => RunCommandAsync(
+        (ResolveTicketHandler handler, CancellationToken ct) => handler.HandleAsync(new ResolveTicketCommand(Ticket.Id), ct),
+        "A jegy megoldva.",
+        token));
+
+    private Task ReopenAsync() => RunExclusiveAsync(token => RunCommandAsync(
+        (ReopenTicketHandler handler, CancellationToken ct) => handler.HandleAsync(new ReopenTicketCommand(Ticket.Id), ct),
+        "A jegy újranyitva.",
+        token));
+
+    private Task CloseAsync() => RunExclusiveAsync(async token =>
+    {
+        // BR-03: closing is final, so it needs a confirmation.
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Jegy lezárása",
+            "A lezárt jegy többé nem osztható ki, és az adatai nem módosíthatók. Biztosan lezárod a jegyet?",
+            yesText: "Lezárás",
+            cancelText: "Mégse");
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        await RunCommandAsync(
+            (CloseTicketHandler handler, CancellationToken ct) => handler.HandleAsync(new CloseTicketCommand(Ticket.Id), ct),
+            "A jegy lezárva.",
+            token);
+    });
+
+    private Task AssignAsync() => RunExclusiveAsync(async token =>
+    {
+        var candidates = await Runner.RunAsync(
+            (GetAssignableAgentsHandler handler, CancellationToken ct) => handler.HandleAsync(new GetAssignableAgentsQuery(Ticket.Id), ct),
+            token);
+        if (candidates.IsFailure)
+        {
+            ShowError(candidates.Error);
+            return;
+        }
+
+        var parameters = new DialogParameters<AssignTicketDialog> { { dialog => dialog.Agents, candidates.Value.Agents } };
+        var dialog = await DialogService.ShowAsync<AssignTicketDialog>(AssignText, parameters, DialogOptions);
+        if (await dialog.Result is not { Canceled: false, Data: Guid agentId })
+        {
+            return;
+        }
+
+        var successMessage = Ticket.AssigneeName is null ? "A jegy kiosztva." : "A jegy átosztva.";
+        await RunCommandAsync(
+            (AssignTicketManuallyHandler handler, CancellationToken ct) =>
+                handler.HandleAsync(new AssignTicketManuallyCommand(Ticket.Id, agentId), ct),
+            successMessage,
+            token);
+    });
+
+    private Task RecategorizeAsync() => RunExclusiveAsync(async token =>
+    {
+        var categories = await Runner.RunAsync(
+            (GetActiveCategoriesHandler handler, CancellationToken ct) => handler.HandleAsync(new GetActiveCategoriesQuery(), ct),
+            token);
+        if (categories.IsFailure)
+        {
+            ShowError(categories.Error);
+            return;
+        }
+
+        var parameters = new DialogParameters<RecategorizeTicketDialog>
+        {
+            { dialog => dialog.Categories, categories.Value },
+            { dialog => dialog.CurrentCategoryCode, Ticket.CategoryCode },
+        };
+        var dialog = await DialogService.ShowAsync<RecategorizeTicketDialog>("Átkategorizálás", parameters, DialogOptions);
+        if (await dialog.Result is not { Canceled: false, Data: Guid categoryId })
+        {
+            return;
+        }
+
+        await RunCommandAsync(
+            (RecategorizeTicketHandler handler, CancellationToken ct) =>
+                handler.HandleAsync(new RecategorizeTicketCommand(Ticket.Id, categoryId), ct),
+            "A jegy átkategorizálva.",
+            token);
+    });
+
+    private Task RetryAutoAssignAsync() => RunExclusiveAsync(async token =>
+    {
+        var result = await Runner.RunAsync(
+            (RetryAutoAssignHandler handler, CancellationToken ct) => handler.HandleAsync(new RetryAutoAssignCommand(Ticket.Id), ct),
+            token);
+        if (result.IsFailure)
+        {
+            ShowError(result.Error);
+            return;
+        }
+
+        if (result.Value is null)
+        {
+            // BR-06: still nobody is eligible, which is not an error; the ticket stays New.
+            Snackbar.Add("Továbbra sincs jogosult ügyintéző, a jegy kiosztatlan marad.", Severity.Info);
+            return;
+        }
+
+        Snackbar.Add("A jegy kiosztva.", Severity.Success);
+        await OnChanged.InvokeAsync();
+    });
+
+    // One operation at a time; the buttons are disabled meanwhile. The token is taken before the first await, so an
+    // operation that outlives the panel (e.g. an open dialog) sees it cancelled instead of a disposed source.
+    private async Task RunExclusiveAsync(Func<CancellationToken, Task> operation)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await operation(_cts.Token);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // The common end of the commands: on success a message and a reload of the ticket, otherwise the error.
+    private async Task RunCommandAsync<THandler>(
+        Func<THandler, CancellationToken, Task<Result>> useCase,
+        string successMessage,
+        CancellationToken token)
+        where THandler : notnull
+    {
+        var result = await Runner.RunAsync(useCase, token);
+        if (result.IsFailure)
+        {
+            ShowError(result.Error);
+            return;
+        }
+
+        Snackbar.Add(successMessage, Severity.Success);
+        await OnChanged.InvokeAsync();
+    }
+
+    // AGENTS.md §7, §11: a concurrency conflict offers to reload the ticket; the triage validation errors appear at
+    // their fields; any other error is a Snackbar message.
+    private void ShowError(Error error)
+    {
+        if (error == GeneralErrors.ConcurrencyConflict)
+        {
+            Snackbar.Add(error.Message, Severity.Warning, options =>
+            {
+                options.Action = "Frissítés";
+                options.RequireInteraction = true;
+                options.CloseAfterNavigation = true;
+                options.OnClick = _ => OnChanged.InvokeAsync();
+            });
+            return;
+        }
+
+        _fieldErrors = error.FieldErrors
+            .Where(field => TriageFields.Contains(field.Key))
+            .ToDictionary(field => field.Key, field => field.Value, StringComparer.Ordinal);
+        if (_fieldErrors.Count == 0 || _fieldErrors.Count < error.FieldErrors.Count)
+        {
+            Snackbar.Add(error.Message, Severity.Error);
+        }
+    }
+
+    private bool HasFieldError(string field) => _fieldErrors.ContainsKey(field);
+
+    private string? FieldErrorText(string field) =>
+        _fieldErrors.TryGetValue(field, out var messages) ? string.Join(" ", messages) : null;
+
+    private void ClearFieldError(string field) => _fieldErrors.Remove(field);
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

@@ -1,4 +1,5 @@
 using FluentValidation;
+using ServiceDesk.Domain.Tickets;
 
 namespace ServiceDesk.Application.Tickets.GetTicketQueue;
 
@@ -13,6 +14,11 @@ public sealed class GetTicketQueueValidator : AbstractValidator<GetTicketQueueQu
         RuleFor(query => query.Status)
             .IsInEnum()
             .WithMessage("Válassz érvényes állapotot.");
+
+        RuleFor(query => query.Status)
+            .NotEqual(TicketStatus.Closed)
+            .WithMessage("A lezárt jegyekre szűréshez a lezárt jegyek megjelenítését is be kell kapcsolni.")
+            .When(query => !query.IncludeClosed);
 
         RuleFor(query => query.Priority)
             .IsInEnum()

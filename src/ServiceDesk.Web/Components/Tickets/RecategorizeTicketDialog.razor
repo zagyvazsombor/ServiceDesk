@@ -1,0 +1,69 @@
+@using ServiceDesk.Application.Tickets.GetActiveCategories
+
+<MudDialog>
+    <DialogContent>
+        @if (Categories.Count == 0)
+        {
+            <MudAlert id="no-active-categories" Severity="Severity.Warning" Dense="true">Jelenleg nincs választható kategória.</MudAlert>
+        }
+        else
+        {
+            <MudSelect T="Guid?" @bind-Value="_categoryId" Label="Kategória" ToStringFunc="CategoryName"
+                       HelperText="@SelectedCategory?.Description">
+                @foreach (var category in Categories)
+                {
+                    <MudSelectItem T="Guid?" Value="category.Id">@category.Name</MudSelectItem>
+                }
+            </MudSelect>
+            @* BR-07, for information; the use case decides about the assignee. *@
+            <MudText Typo="Typo.body2" Class="mt-4">
+                Ha a felelős nem jogosult az új kategóriára, a jegy automatikusan másik ügyintézőhöz kerül.
+                Jogosult ügyintéző hiányában a jegy felelős nélkül, új állapotba kerül vissza.
+            </MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Mégse</MudButton>
+        <MudButton id="recategorize-submit" Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="_categoryId is null || _categoryId == _currentCategoryId" OnClick="Submit">
+            Átkategorizálás
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private Guid? _currentCategoryId;
+    private Guid? _categoryId;
+
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    // Only the active categories (BR-13).
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ActiveCategoryDto> Categories { get; set; } = [];
+
+    // The current category of the ticket is preselected while it is active; an inactive one is not in the list.
+    [Parameter, EditorRequired]
+    public string CurrentCategoryCode { get; set; } = string.Empty;
+
+    private ActiveCategoryDto? SelectedCategory => Categories.FirstOrDefault(category => category.Id == _categoryId);
+
+    protected override void OnInitialized()
+    {
+        _currentCategoryId = Categories.FirstOrDefault(category => category.Code == CurrentCategoryCode)?.Id;
+        _categoryId = _currentCategoryId;
+    }
+
+    private string CategoryName(Guid? categoryId) =>
+        Categories.FirstOrDefault(category => category.Id == categoryId)?.Name ?? string.Empty;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void Submit()
+    {
+        if (_categoryId is { } categoryId)
+        {
+            MudDialog.Close(DialogResult.Ok(categoryId));
+        }
+    }
+}

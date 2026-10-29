@@ -8,7 +8,7 @@ Ez a fájl a projekt kötelező szabályrendszere minden AI kódoló ügynök sz
 2. Csak a prompt hatókörében dolgozz. TILOS későbbi lépés funkcióját előre megírni, kéretlenül refaktorálni, vagy meglévő elemet indoklás nélkül átnevezni.
 3. Új NuGet-csomag csak a 3. szakasz listájából vehető fel; bármi más csak a felhasználó kifejezett engedélyével.
 4. Üzleti szabályt nem találgatsz: ha a 10. szakasz nem dönti el, kérdezz.
-5. A munka végén futtasd a `dotnet build` (0 hiba, 0 figyelmeztetés) és a `dotnet test` (minden zöld) parancsot. Piros állapotban a lépés nem zárható.
+5. A munka végén futtasd a `dotnet build` (0 hiba, 0 figyelmeztetés) és a `dotnet test --solution ServiceDesk.slnx` (minden zöld) parancsot. A paraméter nélküli `dotnet test` nem futtat tesztet („Zero tests ran”), ezért a megoldást meg kell adni. Piros állapotban a lépés nem zárható.
 6. Zárásként megírod a prompt-naplót (14. szakasz), és összefoglalod: fájlok, döntések, parancsok és eredményük, ismert korlátok.
 7. TILOS commitolni, pusholni, branch-et váltani vagy a git-konfigurációt módosítani. A commitot a hallgató végzi.
 
@@ -404,8 +404,8 @@ Ha a lépés architekturális döntést hoz vagy változtat, írj ADR-t: `docs/a
 ```bash
 dotnet tool restore
 dotnet build
-dotnet test
-dotnet test --filter "BR=BR-03"
+dotnet test --solution ServiceDesk.slnx
+dotnet test --solution ServiceDesk.slnx --filter "BR=BR-03"
 dotnet run --project src/ServiceDesk.Web
 dotnet ef migrations add <Nev> -p src/ServiceDesk.Infrastructure -s src/ServiceDesk.Web -o Persistence/Migrations
 dotnet ef database update -p src/ServiceDesk.Infrastructure -s src/ServiceDesk.Web

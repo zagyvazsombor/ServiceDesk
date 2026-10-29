@@ -6,6 +6,7 @@ using ServiceDesk.Application.Tickets.GetAssignableAgents;
 using ServiceDesk.Application.Tickets.GetMyTickets;
 using ServiceDesk.Application.Tickets.GetTicketDetails;
 using ServiceDesk.Application.Tickets.GetTicketQueue;
+using ServiceDesk.Application.Tickets.GetTicketQueueFilters;
 using ServiceDesk.Domain.Assignment;
 using ServiceDesk.Domain.Tickets;
 
@@ -183,6 +184,11 @@ internal sealed class TicketQueries(AppDbContext dbContext) : ITicketQueries
             tickets = tickets.Where(ticket => ticket.AssigneeAgentId == null);
         }
 
+        if (!query.IncludeClosed)
+        {
+            tickets = tickets.Where(ticket => ticket.Status != TicketStatus.Closed);
+        }
+
         var totalCount = await tickets.CountAsync(ct);
         var items = await tickets
             .Join(
@@ -220,6 +226,23 @@ internal sealed class TicketQueries(AppDbContext dbContext) : ITicketQueries
             .ToListAsync(ct);
 
         return new PagedResult<TicketQueueItemDto>(items, query.PageNumber, pageSize, totalCount);
+    }
+
+    // Two queries, one per list; the inactive entries are kept, as they can still be on tickets (BR-12, BR-13).
+    public async Task<TicketQueueFiltersDto> GetTicketQueueFiltersAsync(CancellationToken ct)
+    {
+        var categories = await dbContext.Categories
+            .AsNoTracking()
+            .OrderBy(category => category.Name)
+            .Select(category => new QueueFilterOptionDto(category.Id, category.Name, category.IsActive))
+            .ToListAsync(ct);
+        var agents = await dbContext.Agents
+            .AsNoTracking()
+            .OrderBy(agent => agent.DisplayName)
+            .Select(agent => new QueueFilterOptionDto(agent.Id, agent.DisplayName, agent.IsActive))
+            .ToListAsync(ct);
+
+        return new TicketQueueFiltersDto(categories, agents);
     }
 
     // One query for the ticket and one for the agents with the priorities of their open tickets (no N+1).

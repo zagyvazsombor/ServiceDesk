@@ -33,7 +33,7 @@ public sealed partial class RetryAutoAssignHandler(
         }
 
         // BR-06: only a ticket left without an assignee; a New ticket never has one. A closed ticket is refused too (BR-03).
-        if (ticket.Status != TicketStatus.New)
+        if (!TicketWorkflow.CanRetryAutoAssign(ticket.Status))
         {
             return TicketErrors.AutoAssignmentNotAllowed;
         }

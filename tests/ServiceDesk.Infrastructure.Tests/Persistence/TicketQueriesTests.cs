@@ -6,6 +6,7 @@ using ServiceDesk.Application.Tickets.GetAssignableAgents;
 using ServiceDesk.Application.Tickets.GetMyTickets;
 using ServiceDesk.Application.Tickets.GetTicketDetails;
 using ServiceDesk.Application.Tickets.GetTicketQueue;
+using ServiceDesk.Application.Tickets.GetTicketQueueFilters;
 using ServiceDesk.Domain.Agents;
 using ServiceDesk.Domain.Categories;
 using ServiceDesk.Domain.Tickets;
@@ -24,6 +25,8 @@ public sealed class TicketQueriesTests(DatabaseFixture database) : IntegrationTe
         Assignee,
         Unassigned,
         CategoryAndAssignee,
+        IncludeClosed,
+        ClosedStatus,
     }
 
     [Fact]
@@ -286,6 +289,8 @@ public sealed class TicketQueriesTests(DatabaseFixture database) : IntegrationTe
     [InlineData(QueueFilter.Assignee)]
     [InlineData(QueueFilter.Unassigned)]
     [InlineData(QueueFilter.CategoryAndAssignee)]
+    [InlineData(QueueFilter.IncludeClosed)]
+    [InlineData(QueueFilter.ClosedStatus)]
     public async Task GetTicketQueueAsync_Filter_ReturnsOnlyMatchingTickets(QueueFilter filter)
     {
         // Arrange
@@ -296,19 +301,30 @@ public sealed class TicketQueriesTests(DatabaseFixture database) : IntegrationTe
                 new GetTicketQueueQuery(Status: TicketStatus.InProgress),
                 new[] { scenario.NetworkInProgressOfBela }),
             QueueFilter.Category => (
-                new GetTicketQueueQuery(CategoryId: scenario.Network.Id),
+                new GetTicketQueueQuery(CategoryId: scenario.Network.Id, IncludeClosed: true),
                 [scenario.NetworkInProgressOfBela, scenario.NetworkClosedOfAnna]),
             QueueFilter.Priority => (
                 new GetTicketQueueQuery(Priority: Priority.Medium),
                 [scenario.HardwareNew, scenario.NetworkInProgressOfBela]),
             QueueFilter.Assignee => (
-                new GetTicketQueueQuery(AssigneeAgentId: scenario.Anna.Id),
+                new GetTicketQueueQuery(AssigneeAgentId: scenario.Anna.Id, IncludeClosed: true),
                 [scenario.HardwareAssignedToAnna, scenario.NetworkClosedOfAnna]),
             QueueFilter.Unassigned => (
                 new GetTicketQueueQuery(UnassignedOnly: true),
                 [scenario.HardwareNew]),
             QueueFilter.CategoryAndAssignee => (
-                new GetTicketQueueQuery(CategoryId: scenario.Network.Id, AssigneeAgentId: scenario.Anna.Id),
+                new GetTicketQueueQuery(CategoryId: scenario.Network.Id, AssigneeAgentId: scenario.Anna.Id, IncludeClosed: true),
+                [scenario.NetworkClosedOfAnna]),
+            QueueFilter.IncludeClosed => (
+                new GetTicketQueueQuery(IncludeClosed: true),
+                [
+                    scenario.HardwareAssignedToAnna,
+                    scenario.HardwareNew,
+                    scenario.NetworkInProgressOfBela,
+                    scenario.NetworkClosedOfAnna,
+                ]),
+            QueueFilter.ClosedStatus => (
+                new GetTicketQueueQuery(Status: TicketStatus.Closed, IncludeClosed: true),
                 [scenario.NetworkClosedOfAnna]),
             _ => throw new ArgumentOutOfRangeException(nameof(filter), filter, "Unknown filter."),
         };
@@ -319,6 +335,22 @@ public sealed class TicketQueriesTests(DatabaseFixture database) : IntegrationTe
         // Assert
         page.Items.Select(ticket => ticket.Id).ShouldBe(expected.Select(ticket => ticket.Id));
         page.TotalCount.ShouldBe(expected.Length);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-03")]
+    public async Task GetTicketQueueAsync_DefaultQuery_LeavesOutClosedTickets()
+    {
+        // Arrange
+        var scenario = await SaveQueueScenarioAsync();
+
+        // Act
+        var page = await GetTicketQueueAsync(new GetTicketQueueQuery(), pageSize: 20);
+
+        // Assert: Anna's closed NETWORK ticket is the only one missing; High first, then the older Medium ticket.
+        page.Items.Select(ticket => ticket.Id).ShouldBe(
+            [scenario.HardwareAssignedToAnna.Id, scenario.HardwareNew.Id, scenario.NetworkInProgressOfBela.Id]);
+        page.TotalCount.ShouldBe(3);
     }
 
     [Fact]
@@ -413,6 +445,45 @@ public sealed class TicketQueriesTests(DatabaseFixture database) : IntegrationTe
         assignableAgents.ShouldNotBeNull();
         assignableAgents.TicketStatus.ShouldBe(TicketStatus.New);
         assignableAgents.Agents.ShouldBeEmpty();
+    }
+
+    [Fact]
+    [Trait("BR", "BR-12")]
+    [Trait("BR", "BR-13")]
+    public async Task GetTicketQueueFiltersAsync_ActiveAndInactiveEntries_ReturnsEveryCategoryAndAgentByName()
+    {
+        // Arrange
+        var users = Enumerable.Range(0, 3).Select(_ => new UserBuilder().Build()).ToArray();
+        var software = new CategoryBuilder().WithCode("SOFTWARE").WithName("Szoftver").Build();
+        var hardware = new CategoryBuilder().WithCode("HARDWARE").WithName("Hardver").Build();
+        var other = new CategoryBuilder().WithCode("OTHER").WithName("Egyeb").Build();
+        other.Deactivate();
+        var csaba = new AgentBuilder(users[0]).WithDisplayName("Tóth Csaba").Build();
+        var anna = new AgentBuilder(users[1]).WithDisplayName("Kiss Anna").Build();
+        var bela = new AgentBuilder(users[2]).WithDisplayName("Nagy Béla").Inactive().Build();
+        await SaveAsync([.. users, software, hardware, other, csaba, anna, bela]);
+
+        // Act
+        TicketQueueFiltersDto filters;
+        await using (var scope = Database.CreateScope())
+        {
+            filters = await scope.ServiceProvider.GetRequiredService<ITicketQueries>()
+                .GetTicketQueueFiltersAsync(CancellationToken);
+        }
+
+        // Assert
+        filters.Categories.ShouldBe(
+        [
+            new QueueFilterOptionDto(other.Id, "Egyeb", IsActive: false),
+            new QueueFilterOptionDto(hardware.Id, "Hardver", IsActive: true),
+            new QueueFilterOptionDto(software.Id, "Szoftver", IsActive: true),
+        ]);
+        filters.Agents.ShouldBe(
+        [
+            new QueueFilterOptionDto(anna.Id, "Kiss Anna", IsActive: true),
+            new QueueFilterOptionDto(bela.Id, "Nagy Béla", IsActive: false),
+            new QueueFilterOptionDto(csaba.Id, "Tóth Csaba", IsActive: true),
+        ]);
     }
 
     [Fact]

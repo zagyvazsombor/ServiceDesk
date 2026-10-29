@@ -95,6 +95,39 @@ public sealed class GetTicketQueueHandlerTests
     }
 
     [Fact]
+    [Trait("BR", "BR-03")]
+    public async Task HandleAsync_ClosedStatusWithoutIncludeClosed_ReturnsValidationErrorWithoutQuery()
+    {
+        // Arrange
+        var query = new GetTicketQueueQuery(Status: TicketStatus.Closed);
+
+        // Act
+        var result = await CreateHandler(TestUsers.Admin()).HandleAsync(query, CancellationToken);
+
+        // Assert
+        query.IncludeClosed.ShouldBeFalse();
+        result.Error.Code.ShouldBe("Validation.Status");
+        result.Error.Type.ShouldBe(ErrorType.Validation);
+        await ShouldNotHaveQueriedAsync();
+    }
+
+    [Fact]
+    [Trait("BR", "BR-03")]
+    public async Task HandleAsync_ClosedStatusWithIncludeClosed_IsValid()
+    {
+        // Arrange
+        var query = new GetTicketQueueQuery(Status: TicketStatus.Closed, IncludeClosed: true);
+        var page = new PagedResult<TicketQueueItemDto>([], 1, GetTicketQueueQuery.PageSize, 0);
+        _ticketQueries.GetTicketQueueAsync(query, GetTicketQueueQuery.PageSize, Arg.Any<CancellationToken>()).Returns(page);
+
+        // Act
+        var result = await CreateHandler(TestUsers.Admin()).HandleAsync(query, CancellationToken);
+
+        // Assert
+        result.Value.ShouldBeSameAs(page);
+    }
+
+    [Fact]
     public async Task HandleAsync_UnassignedOnlyWithoutAssignee_IsValid()
     {
         // Arrange

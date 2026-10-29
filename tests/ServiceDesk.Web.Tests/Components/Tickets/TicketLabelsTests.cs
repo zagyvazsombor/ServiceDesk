@@ -105,4 +105,18 @@ public sealed class TicketLabelsTests
         // Assert
         text.ShouldBe(expected);
     }
+
+    [Theory]
+    [Trait("BR", "BR-12")]
+    [Trait("BR", "BR-13")]
+    [InlineData("Hardver", true, "Hardver")]
+    [InlineData("Nagy Béla", false, "Nagy Béla (inaktív)")]
+    public void NameWithActiveState_Name_MarksOnlyInactive(string name, bool isActive, string expected)
+    {
+        // Act
+        var text = TicketLabels.NameWithActiveState(name, isActive);
+
+        // Assert
+        text.ShouldBe(expected);
+    }
 }

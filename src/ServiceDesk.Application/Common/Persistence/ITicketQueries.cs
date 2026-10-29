@@ -4,6 +4,7 @@ using ServiceDesk.Application.Tickets.GetAssignableAgents;
 using ServiceDesk.Application.Tickets.GetMyTickets;
 using ServiceDesk.Application.Tickets.GetTicketDetails;
 using ServiceDesk.Application.Tickets.GetTicketQueue;
+using ServiceDesk.Application.Tickets.GetTicketQueueFilters;
 
 namespace ServiceDesk.Application.Common.Persistence;
 
@@ -22,6 +23,9 @@ public interface ITicketQueries
 
     // Admin queue: the tickets matching every filter of the query; highest priority first, then oldest first.
     Task<PagedResult<TicketQueueItemDto>> GetTicketQueueAsync(GetTicketQueueQuery query, int pageSize, CancellationToken ct);
+
+    // The choices of the queue filters: every category and agent by name, the inactive ones too (BR-12, BR-13).
+    Task<TicketQueueFiltersDto> GetTicketQueueFiltersAsync(CancellationToken ct);
 
     // BR-04: the active agents with a competency for the category of the ticket, with their load (BR-05);
     // null if the ticket is not found.

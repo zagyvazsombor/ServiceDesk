@@ -108,7 +108,7 @@ public sealed class Ticket
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(actorUserId);
 
-        if (Status == TicketStatus.Closed)
+        if (!TicketWorkflow.CanChangeImpactAndUrgency(Status))
         {
             return TicketErrors.ClosedCannotBeModified; // BR-03
         }
@@ -145,12 +145,12 @@ public sealed class Ticket
         ArgumentNullException.ThrowIfNull(category);
         ArgumentException.ThrowIfNullOrWhiteSpace(actorUserId);
 
-        if (Status == TicketStatus.Closed)
+        if (TicketWorkflow.IsTerminal(Status))
         {
             return TicketErrors.ClosedCannotBeModified; // BR-03
         }
 
-        if (Status is not (TicketStatus.New or TicketStatus.Assigned or TicketStatus.InProgress))
+        if (!TicketWorkflow.CanRecategorize(Status))
         {
             return TicketErrors.RecategorizationNotAllowed; // BR-07
         }
@@ -175,7 +175,7 @@ public sealed class Ticket
     {
         ArgumentNullException.ThrowIfNull(agent);
 
-        if (Status == TicketStatus.Closed)
+        if (!TicketWorkflow.CanAssign(Status))
         {
             return TicketErrors.ClosedCannotBeAssigned; // BR-03
         }
@@ -215,7 +215,7 @@ public sealed class Ticket
     // Done by the system, only when no agent is eligible after a recategorization (BR-07).
     public Result Unassign(DateTimeOffset now)
     {
-        if (Status is not (TicketStatus.Assigned or TicketStatus.InProgress))
+        if (!TicketWorkflow.CanUnassign(Status))
         {
             return TicketErrors.InvalidTransition;
         }
@@ -227,23 +227,23 @@ public sealed class Ticket
     }
 
     public Result Start(string actorUserId, DateTimeOffset now) =>
-        Transition(TicketStatus.Assigned, TicketStatus.InProgress, actorUserId, now);
+        Transition(TicketWorkflow.CanStart, TicketStatus.InProgress, actorUserId, now);
 
     public Result Resolve(string actorUserId, DateTimeOffset now) =>
-        Transition(TicketStatus.InProgress, TicketStatus.Resolved, actorUserId, now);
+        Transition(TicketWorkflow.CanResolve, TicketStatus.Resolved, actorUserId, now);
 
     public Result Reopen(string actorUserId, DateTimeOffset now) =>
-        Transition(TicketStatus.Resolved, TicketStatus.InProgress, actorUserId, now);
+        Transition(TicketWorkflow.CanReopen, TicketStatus.InProgress, actorUserId, now);
 
     public Result Close(string actorUserId, DateTimeOffset now) =>
-        Transition(TicketStatus.Resolved, TicketStatus.Closed, actorUserId, now);
+        Transition(TicketWorkflow.CanClose, TicketStatus.Closed, actorUserId, now);
 
-    private Result Transition(TicketStatus from, TicketStatus to, string actorUserId, DateTimeOffset now)
+    private Result Transition(Func<TicketStatus, bool> isAllowed, TicketStatus to, string actorUserId, DateTimeOffset now)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(actorUserId);
 
         // BR-03: no transition starts from Closed, so a closed ticket is terminal.
-        if (Status != from)
+        if (!isAllowed(Status))
         {
             return TicketErrors.InvalidTransition;
         }
