@@ -74,7 +74,7 @@ public sealed partial class CreateTicketHandler(
             return save.Error;
         }
 
-        LogTicketCreated(logger, ticket.Id, ticket.ReporterId, ticket.AssigneeAgentId);
+        LogTicketCreated(logger, ticket.Id, ticket.ReporterId, assignment.Value);
         return ticket.Id;
     }
 

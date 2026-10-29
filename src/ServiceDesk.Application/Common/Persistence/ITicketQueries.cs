@@ -1,7 +1,9 @@
 using ServiceDesk.Application.Common.Paging;
 using ServiceDesk.Application.Tickets.GetActiveCategories;
+using ServiceDesk.Application.Tickets.GetAssignableAgents;
 using ServiceDesk.Application.Tickets.GetMyTickets;
 using ServiceDesk.Application.Tickets.GetTicketDetails;
+using ServiceDesk.Application.Tickets.GetTicketQueue;
 
 namespace ServiceDesk.Application.Common.Persistence;
 
@@ -17,4 +19,11 @@ public interface ITicketQueries
     // BR-02: with a reporterId the ticket is found only if it belongs to that reporter (AGENTS.md §8, level 3);
     // null means any ticket (Admin). null if the ticket is not found.
     Task<TicketDetailsDto?> GetTicketDetailsAsync(Guid ticketId, string? reporterId, CancellationToken ct);
+
+    // Admin queue: the tickets matching every filter of the query; highest priority first, then oldest first.
+    Task<PagedResult<TicketQueueItemDto>> GetTicketQueueAsync(GetTicketQueueQuery query, int pageSize, CancellationToken ct);
+
+    // BR-04: the active agents with a competency for the category of the ticket, with their load (BR-05);
+    // null if the ticket is not found.
+    Task<AssignableAgentsDto?> GetAssignableAgentsAsync(Guid ticketId, CancellationToken ct);
 }

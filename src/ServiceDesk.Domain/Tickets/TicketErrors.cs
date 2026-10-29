@@ -49,4 +49,10 @@ public static class TicketErrors
         "Ticket.RecategorizationNotAllowed",
         "Átkategorizálni csak új, kiosztott vagy folyamatban lévő jegyet lehet.",
         ErrorType.BusinessRule);
+
+    // BR-06: the automatic assignment is run again only for a New ticket, which never has an assignee.
+    public static readonly Error AutoAssignmentNotAllowed = new(
+        "Ticket.AutoAssignmentNotAllowed",
+        "Automatikus kiosztás csak felelős nélküli, új jegyre futtatható.",
+        ErrorType.BusinessRule);
 }

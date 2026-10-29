@@ -35,6 +35,7 @@ public sealed class TicketAssignmentServiceTests
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(freeAgent.Id);
         ticket.Status.ShouldBe(TicketStatus.Assigned);
         ticket.AssigneeAgentId.ShouldBe(freeAgent.Id);
         var assignment = ticket.History.Single(entry => entry.Action == TicketHistoryAction.Assigned);
@@ -48,7 +49,7 @@ public sealed class TicketAssignmentServiceTests
 
     [Fact]
     [Trait("BR", "BR-06")]
-    public async Task AutoAssignAsync_NoCandidate_LeavesTicketNewWithoutAssignee()
+    public async Task AutoAssignAsync_NoCandidate_ReturnsNullAndLeavesTicketNewWithoutAssignee()
     {
         // Arrange
         CandidatesAre();
@@ -59,6 +60,7 @@ public sealed class TicketAssignmentServiceTests
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBeNull();
         ticket.Status.ShouldBe(TicketStatus.New);
         ticket.AssigneeAgentId.ShouldBeNull();
         ticket.History.ShouldHaveSingleItem().Action.ShouldBe(TicketHistoryAction.Created);

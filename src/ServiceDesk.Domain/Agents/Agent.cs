@@ -49,6 +49,9 @@ public sealed class Agent
     public bool HasCompetency(Guid categoryId) =>
         _competencies.Exists(competency => competency.CategoryId == categoryId);
 
+    // BR-04: only an active agent with a competency for the category may hold a ticket of that category.
+    public bool IsEligibleFor(Guid categoryId) => IsActive && HasCompetency(categoryId);
+
     // Replaces the whole competency set; entries that stay are kept, so only the difference changes.
     public Result SetCompetencies(IEnumerable<Guid> categoryIds)
     {

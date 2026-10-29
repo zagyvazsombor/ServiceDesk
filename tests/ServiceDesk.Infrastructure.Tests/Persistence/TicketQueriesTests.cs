@@ -2,8 +2,12 @@ using Microsoft.Extensions.DependencyInjection;
 using ServiceDesk.Application.Common.Paging;
 using ServiceDesk.Application.Common.Persistence;
 using ServiceDesk.Application.Tickets.GetActiveCategories;
+using ServiceDesk.Application.Tickets.GetAssignableAgents;
 using ServiceDesk.Application.Tickets.GetMyTickets;
 using ServiceDesk.Application.Tickets.GetTicketDetails;
+using ServiceDesk.Application.Tickets.GetTicketQueue;
+using ServiceDesk.Domain.Agents;
+using ServiceDesk.Domain.Categories;
 using ServiceDesk.Domain.Tickets;
 using ServiceDesk.Infrastructure.Tests.Builders;
 using Shouldly;
@@ -12,6 +16,16 @@ namespace ServiceDesk.Infrastructure.Tests.Persistence;
 
 public sealed class TicketQueriesTests(DatabaseFixture database) : IntegrationTest(database)
 {
+    public enum QueueFilter
+    {
+        Status,
+        Category,
+        Priority,
+        Assignee,
+        Unassigned,
+        CategoryAndAssignee,
+    }
+
     [Fact]
     [Trait("BR", "BR-02")]
     public async Task GetMyTicketsAsync_TicketsOfTwoReporters_ReturnsOnlyOwnNewestFirst()
@@ -231,6 +245,248 @@ public sealed class TicketQueriesTests(DatabaseFixture database) : IntegrationTe
         details.History[^1].At.ShouldBe(TestTime.Now.AddHours(2));
     }
 
+    [Fact]
+    public async Task GetTicketQueueAsync_TicketsOfEveryPriority_OrdersByPriorityThenOldestFirst()
+    {
+        // Arrange
+        var reporter = new UserBuilder().Build();
+        var hardware = new CategoryBuilder().WithName("Hardver").Build();
+        TicketBuilder Ticket(Impact impact, Urgency urgency, int hour) =>
+            new TicketBuilder(reporter, hardware).WithImpactAndUrgency(impact, urgency).CreatedAt(TestTime.Now.AddHours(hour));
+        var planning = Ticket(Impact.Low, Urgency.Low, hour: 0).Build();
+        var low = Ticket(Impact.Medium, Urgency.Low, hour: 1).Build();
+        var newerMedium = Ticket(Impact.Medium, Urgency.Medium, hour: 2).Build();
+        var olderMedium = Ticket(Impact.Low, Urgency.High, hour: 0).Build();
+        var high = Ticket(Impact.High, Urgency.Medium, hour: 4).Build();
+        var critical = Ticket(Impact.High, Urgency.High, hour: 5).Build();
+        await SaveAsync(reporter, hardware, planning, low, newerMedium, olderMedium, high, critical);
+
+        // Act
+        var page = await GetTicketQueueAsync(new GetTicketQueueQuery(), pageSize: 20);
+
+        // Assert
+        page.Items.Select(ticket => ticket.Id).ShouldBe(
+            [critical.Id, high.Id, olderMedium.Id, newerMedium.Id, low.Id, planning.Id]);
+        page.TotalCount.ShouldBe(6);
+        page.Items[0].ShouldBe(new TicketQueueItemDto(
+            critical.Id,
+            critical.Title,
+            "Hardver",
+            Priority.Critical,
+            TicketStatus.New,
+            null,
+            reporter.Email,
+            critical.CreatedAt));
+    }
+
+    [Theory]
+    [InlineData(QueueFilter.Status)]
+    [InlineData(QueueFilter.Category)]
+    [InlineData(QueueFilter.Priority)]
+    [InlineData(QueueFilter.Assignee)]
+    [InlineData(QueueFilter.Unassigned)]
+    [InlineData(QueueFilter.CategoryAndAssignee)]
+    public async Task GetTicketQueueAsync_Filter_ReturnsOnlyMatchingTickets(QueueFilter filter)
+    {
+        // Arrange
+        var scenario = await SaveQueueScenarioAsync();
+        var (query, expected) = filter switch
+        {
+            QueueFilter.Status => (
+                new GetTicketQueueQuery(Status: TicketStatus.InProgress),
+                new[] { scenario.NetworkInProgressOfBela }),
+            QueueFilter.Category => (
+                new GetTicketQueueQuery(CategoryId: scenario.Network.Id),
+                [scenario.NetworkInProgressOfBela, scenario.NetworkClosedOfAnna]),
+            QueueFilter.Priority => (
+                new GetTicketQueueQuery(Priority: Priority.Medium),
+                [scenario.HardwareNew, scenario.NetworkInProgressOfBela]),
+            QueueFilter.Assignee => (
+                new GetTicketQueueQuery(AssigneeAgentId: scenario.Anna.Id),
+                [scenario.HardwareAssignedToAnna, scenario.NetworkClosedOfAnna]),
+            QueueFilter.Unassigned => (
+                new GetTicketQueueQuery(UnassignedOnly: true),
+                [scenario.HardwareNew]),
+            QueueFilter.CategoryAndAssignee => (
+                new GetTicketQueueQuery(CategoryId: scenario.Network.Id, AssigneeAgentId: scenario.Anna.Id),
+                [scenario.NetworkClosedOfAnna]),
+            _ => throw new ArgumentOutOfRangeException(nameof(filter), filter, "Unknown filter."),
+        };
+
+        // Act
+        var page = await GetTicketQueueAsync(query, pageSize: 20);
+
+        // Assert
+        page.Items.Select(ticket => ticket.Id).ShouldBe(expected.Select(ticket => ticket.Id));
+        page.TotalCount.ShouldBe(expected.Length);
+    }
+
+    [Fact]
+    public async Task GetTicketQueueAsync_AssignedTicket_ReturnsAssigneeName()
+    {
+        // Arrange
+        var scenario = await SaveQueueScenarioAsync();
+
+        // Act
+        var page = await GetTicketQueueAsync(new GetTicketQueueQuery(AssigneeAgentId: scenario.Bela.Id), pageSize: 20);
+
+        // Assert
+        page.Items.ShouldHaveSingleItem().AssigneeName.ShouldBe("Nagy Béla");
+    }
+
+    [Fact]
+    public async Task GetTicketQueueAsync_SecondPage_ReturnsRemainingTicketsWithTotalCount()
+    {
+        // Arrange
+        var reporter = new UserBuilder().Build();
+        var hardware = new CategoryBuilder().Build();
+        var tickets = Enumerable.Range(0, 3)
+            .Select(hour => new TicketBuilder(reporter, hardware).CreatedAt(TestTime.Now.AddHours(hour)).Build())
+            .ToArray();
+        await SaveAsync([reporter, hardware, .. tickets]);
+
+        // Act
+        var page = await GetTicketQueueAsync(new GetTicketQueueQuery(PageNumber: 2), pageSize: 2);
+
+        // Assert: the same priority, so the newest ticket is the only one left for the second page.
+        page.Items.Select(ticket => ticket.Id).ShouldBe([tickets[2].Id]);
+        page.PageNumber.ShouldBe(2);
+        page.PageSize.ShouldBe(2);
+        page.TotalCount.ShouldBe(3);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-04")]
+    [Trait("BR", "BR-05")]
+    public async Task GetAssignableAgentsAsync_SeveralAgents_ReturnsActiveCompetentAgentsLeastLoadedThenByName()
+    {
+        // Arrange
+        var reporter = new UserBuilder().Build();
+        var users = Enumerable.Range(0, 5).Select(_ => new UserBuilder().Build()).ToArray();
+        var hardware = new CategoryBuilder().WithCode("HARDWARE").Build();
+        var network = new CategoryBuilder().WithCode("NETWORK").Build();
+        var anna = new AgentBuilder(users[0]).WithDisplayName("Kiss Anna").WithCompetencies(hardware).Build();
+        var bela = new AgentBuilder(users[1]).WithDisplayName("Nagy Béla").WithCompetencies(hardware, network).Build();
+        var csaba = new AgentBuilder(users[2]).WithDisplayName("Tóth Csaba").WithCompetencies(network).Build();
+        var denes = new AgentBuilder(users[3]).WithDisplayName("Inaktív Dénes").WithCompetencies(hardware).Inactive().Build();
+        var agota = new AgentBuilder(users[4]).WithDisplayName("Bodnár Ágota").WithCompetencies(hardware).Build();
+        // Anna: the ticket itself (Medium, 3) is open, her resolved ticket does not count.
+        var ticket = new TicketBuilder(reporter, hardware).InStatus(TicketStatus.Assigned, anna, users[0]).Build();
+        var resolvedOfAnna = new TicketBuilder(reporter, hardware).InStatus(TicketStatus.Resolved, anna, users[0]).Build();
+        // Béla: an InProgress Critical ticket (5) counts, his closed ticket does not.
+        var criticalOfBela = new TicketBuilder(reporter, network)
+            .WithImpactAndUrgency(Impact.High, Urgency.High)
+            .InStatus(TicketStatus.InProgress, bela, users[1])
+            .Build();
+        var closedOfBela = new TicketBuilder(reporter, network).InStatus(TicketStatus.Closed, bela, users[1]).Build();
+        await SaveAsync(
+            [reporter, .. users, hardware, network, anna, bela, csaba, denes, agota, ticket, resolvedOfAnna, criticalOfBela, closedOfBela]);
+
+        // Act
+        var assignableAgents = await GetAssignableAgentsAsync(ticket.Id);
+
+        // Assert: Csaba has no HARDWARE competency, Dénes is inactive (BR-04).
+        assignableAgents.ShouldNotBeNull();
+        assignableAgents.TicketStatus.ShouldBe(TicketStatus.Assigned);
+        assignableAgents.Agents.ShouldBe(
+        [
+            new AssignableAgentDto(agota.Id, "Bodnár Ágota", Load: 0, OpenTicketCount: 0, IsCurrentAssignee: false),
+            new AssignableAgentDto(anna.Id, "Kiss Anna", Load: 3, OpenTicketCount: 1, IsCurrentAssignee: true),
+            new AssignableAgentDto(bela.Id, "Nagy Béla", Load: 5, OpenTicketCount: 1, IsCurrentAssignee: false),
+        ]);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-06")]
+    public async Task GetAssignableAgentsAsync_NobodyEligible_ReturnsTicketStatusWithoutAgents()
+    {
+        // Arrange
+        var reporter = new UserBuilder().Build();
+        var hardware = new CategoryBuilder().Build();
+        var ticket = new TicketBuilder(reporter, hardware).Build();
+        await SaveAsync(reporter, hardware, ticket);
+
+        // Act
+        var assignableAgents = await GetAssignableAgentsAsync(ticket.Id);
+
+        // Assert
+        assignableAgents.ShouldNotBeNull();
+        assignableAgents.TicketStatus.ShouldBe(TicketStatus.New);
+        assignableAgents.Agents.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task GetAssignableAgentsAsync_UnknownTicket_ReturnsNull()
+    {
+        // Act
+        var assignableAgents = await GetAssignableAgentsAsync(Guid.CreateVersion7());
+
+        // Assert
+        assignableAgents.ShouldBeNull();
+    }
+
+    // Four tickets, one hour apart: HARDWARE New (Medium); HARDWARE Assigned to Anna (High);
+    // NETWORK InProgress of Béla (Medium); NETWORK Closed of Anna (Low).
+    private async Task<QueueScenario> SaveQueueScenarioAsync()
+    {
+        var reporter = new UserBuilder().Build();
+        var annaUser = new UserBuilder().Build();
+        var belaUser = new UserBuilder().Build();
+        var hardware = new CategoryBuilder().WithCode("HARDWARE").Build();
+        var network = new CategoryBuilder().WithCode("NETWORK").Build();
+        var anna = new AgentBuilder(annaUser).WithDisplayName("Kiss Anna").WithCompetencies(hardware, network).Build();
+        var bela = new AgentBuilder(belaUser).WithDisplayName("Nagy Béla").WithCompetencies(network).Build();
+        var hardwareNew = new TicketBuilder(reporter, hardware).CreatedAt(TestTime.Now).Build();
+        var hardwareAssignedToAnna = new TicketBuilder(reporter, hardware)
+            .WithImpactAndUrgency(Impact.High, Urgency.Medium)
+            .CreatedAt(TestTime.Now.AddHours(1))
+            .InStatus(TicketStatus.Assigned, anna, annaUser)
+            .Build();
+        var networkInProgressOfBela = new TicketBuilder(reporter, network)
+            .CreatedAt(TestTime.Now.AddHours(2))
+            .InStatus(TicketStatus.InProgress, bela, belaUser)
+            .Build();
+        var networkClosedOfAnna = new TicketBuilder(reporter, network)
+            .WithImpactAndUrgency(Impact.Medium, Urgency.Low)
+            .CreatedAt(TestTime.Now.AddHours(3))
+            .InStatus(TicketStatus.Closed, anna, annaUser)
+            .Build();
+        await SaveAsync(
+            reporter,
+            annaUser,
+            belaUser,
+            hardware,
+            network,
+            anna,
+            bela,
+            hardwareNew,
+            hardwareAssignedToAnna,
+            networkInProgressOfBela,
+            networkClosedOfAnna);
+        return new QueueScenario(
+            network,
+            anna,
+            bela,
+            hardwareNew,
+            hardwareAssignedToAnna,
+            networkInProgressOfBela,
+            networkClosedOfAnna);
+    }
+
+    private async Task<PagedResult<TicketQueueItemDto>> GetTicketQueueAsync(GetTicketQueueQuery query, int pageSize)
+    {
+        await using var scope = Database.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<ITicketQueries>()
+            .GetTicketQueueAsync(query, pageSize, CancellationToken);
+    }
+
+    private async Task<AssignableAgentsDto?> GetAssignableAgentsAsync(Guid ticketId)
+    {
+        await using var scope = Database.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<ITicketQueries>()
+            .GetAssignableAgentsAsync(ticketId, CancellationToken);
+    }
+
     private async Task<PagedResult<MyTicketDto>> GetMyTicketsAsync(string reporterId, int pageNumber, int pageSize)
     {
         await using var scope = Database.CreateScope();
@@ -244,4 +500,13 @@ public sealed class TicketQueriesTests(DatabaseFixture database) : IntegrationTe
         return await scope.ServiceProvider.GetRequiredService<ITicketQueries>()
             .GetTicketDetailsAsync(ticketId, reporterId, CancellationToken);
     }
+
+    private sealed record QueueScenario(
+        Category Network,
+        Agent Anna,
+        Agent Bela,
+        Ticket HardwareNew,
+        Ticket HardwareAssignedToAnna,
+        Ticket NetworkInProgressOfBela,
+        Ticket NetworkClosedOfAnna);
 }

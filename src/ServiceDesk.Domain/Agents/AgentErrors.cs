@@ -14,6 +14,11 @@ public static class AgentErrors
         "A kompetenciák között érvénytelen kategória szerepel.",
         ErrorType.Validation);
 
+    public static readonly Error NotFound = new(
+        "Agent.NotFound",
+        "Az ügyintéző nem található.",
+        ErrorType.NotFound);
+
     public static readonly Error Inactive = new(
         "Agent.Inactive",
         "Inaktív ügyintéző nem kaphat jegyet.",

@@ -131,6 +131,40 @@ public sealed class AgentTests
     }
 
     [Fact]
+    [Trait("BR", "BR-04")]
+    public void IsEligibleFor_ActiveAgentWithCompetency_ReturnsTrue()
+    {
+        var hardware = Guid.CreateVersion7();
+        var agent = Agent.Create(UserId, "Kiss Anna").Value;
+        agent.SetCompetencies([hardware]);
+
+        agent.IsEligibleFor(hardware).ShouldBeTrue();
+    }
+
+    [Fact]
+    [Trait("BR", "BR-04")]
+    public void IsEligibleFor_ActiveAgentWithoutCompetency_ReturnsFalse()
+    {
+        var agent = Agent.Create(UserId, "Kiss Anna").Value;
+        agent.SetCompetencies([Guid.CreateVersion7()]);
+
+        agent.IsEligibleFor(Guid.CreateVersion7()).ShouldBeFalse();
+    }
+
+    [Fact]
+    [Trait("BR", "BR-04")]
+    [Trait("BR", "BR-12")]
+    public void IsEligibleFor_InactiveAgentWithCompetency_ReturnsFalse()
+    {
+        var hardware = Guid.CreateVersion7();
+        var agent = Agent.Create(UserId, "Kiss Anna").Value;
+        agent.SetCompetencies([hardware]);
+        agent.Deactivate();
+
+        agent.IsEligibleFor(hardware).ShouldBeFalse();
+    }
+
+    [Fact]
     [Trait("BR", "BR-05")]
     public void RecordAssignment_Now_SetsLastAssignedAt()
     {

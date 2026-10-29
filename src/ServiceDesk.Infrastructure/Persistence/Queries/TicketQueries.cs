@@ -2,8 +2,11 @@ using Microsoft.EntityFrameworkCore;
 using ServiceDesk.Application.Common.Paging;
 using ServiceDesk.Application.Common.Persistence;
 using ServiceDesk.Application.Tickets.GetActiveCategories;
+using ServiceDesk.Application.Tickets.GetAssignableAgents;
 using ServiceDesk.Application.Tickets.GetMyTickets;
 using ServiceDesk.Application.Tickets.GetTicketDetails;
+using ServiceDesk.Application.Tickets.GetTicketQueue;
+using ServiceDesk.Domain.Assignment;
 using ServiceDesk.Domain.Tickets;
 
 namespace ServiceDesk.Infrastructure.Persistence.Queries;
@@ -147,6 +150,122 @@ internal sealed class TicketQueries(AppDbContext dbContext) : ITicketQueries
                     ResolveValue(entry.Action, entry.OldValue),
                     ResolveValue(entry.Action, entry.NewValue)))
                 .ToList());
+    }
+
+    public async Task<PagedResult<TicketQueueItemDto>> GetTicketQueueAsync(
+        GetTicketQueueQuery query,
+        int pageSize,
+        CancellationToken ct)
+    {
+        var tickets = dbContext.Tickets.AsNoTracking();
+        if (query.Status is { } status)
+        {
+            tickets = tickets.Where(ticket => ticket.Status == status);
+        }
+
+        if (query.CategoryId is { } categoryId)
+        {
+            tickets = tickets.Where(ticket => ticket.CategoryId == categoryId);
+        }
+
+        if (query.Priority is { } priority)
+        {
+            tickets = tickets.Where(ticket => ticket.Priority == priority);
+        }
+
+        if (query.AssigneeAgentId is { } assigneeAgentId)
+        {
+            tickets = tickets.Where(ticket => ticket.AssigneeAgentId == assigneeAgentId);
+        }
+
+        if (query.UnassignedOnly)
+        {
+            tickets = tickets.Where(ticket => ticket.AssigneeAgentId == null);
+        }
+
+        var totalCount = await tickets.CountAsync(ct);
+        var items = await tickets
+            .Join(
+                dbContext.Categories,
+                ticket => ticket.CategoryId,
+                category => category.Id,
+                (ticket, category) => new { Ticket = ticket, CategoryName = category.Name })
+            // The priority is stored by name, so its rank is spelled out (a CASE in SQL): Critical first.
+            .OrderBy(row => row.Ticket.Priority == Priority.Critical ? 0
+                : row.Ticket.Priority == Priority.High ? 1
+                : row.Ticket.Priority == Priority.Medium ? 2
+                : row.Ticket.Priority == Priority.Low ? 3
+                : 4)
+            // Within a priority the longest waiting ticket comes first; the Id keeps the page boundaries stable.
+            .ThenBy(row => row.Ticket.CreatedAt)
+            .ThenBy(row => row.Ticket.Id)
+            .Skip((query.PageNumber - 1) * pageSize)
+            .Take(pageSize)
+            // The names are subqueries of the same SQL statement (no N+1).
+            .Select(row => new TicketQueueItemDto(
+                row.Ticket.Id,
+                row.Ticket.Title,
+                row.CategoryName,
+                row.Ticket.Priority,
+                row.Ticket.Status,
+                dbContext.Agents
+                    .Where(agent => agent.Id == row.Ticket.AssigneeAgentId)
+                    .Select(agent => agent.DisplayName)
+                    .FirstOrDefault(),
+                dbContext.Users
+                    .Where(user => user.Id == row.Ticket.ReporterId)
+                    .Select(user => user.Email)
+                    .FirstOrDefault(),
+                row.Ticket.CreatedAt))
+            .ToListAsync(ct);
+
+        return new PagedResult<TicketQueueItemDto>(items, query.PageNumber, pageSize, totalCount);
+    }
+
+    // One query for the ticket and one for the agents with the priorities of their open tickets (no N+1).
+    public async Task<AssignableAgentsDto?> GetAssignableAgentsAsync(Guid ticketId, CancellationToken ct)
+    {
+        var ticket = await dbContext.Tickets
+            .AsNoTracking()
+            .Where(row => row.Id == ticketId)
+            .Select(row => new { row.Status, row.CategoryId, row.AssigneeAgentId })
+            .SingleOrDefaultAsync(ct);
+        if (ticket is null)
+        {
+            return null;
+        }
+
+        var rows = await dbContext.Agents
+            .AsNoTracking()
+            .Where(agent => agent.IsActive
+                && agent.Competencies.Any(competency => competency.CategoryId == ticket.CategoryId)) // BR-04
+            .OrderBy(agent => agent.DisplayName)
+            .Select(agent => new
+            {
+                agent.Id,
+                agent.DisplayName,
+                agent.LastAssignedAt,
+                OpenTicketPriorities = dbContext.Tickets
+                    .Where(openTicket => openTicket.AssigneeAgentId == agent.Id
+                        && (openTicket.Status == TicketStatus.Assigned || openTicket.Status == TicketStatus.InProgress))
+                    .Select(openTicket => openTicket.Priority)
+                    .ToList(),
+            })
+            .ToListAsync(ct);
+
+        var agents = rows
+            .Select(row => new AssignableAgentDto(
+                row.Id,
+                row.DisplayName,
+                // BR-05: the same load as the automatic assignment uses.
+                new AgentCandidate(row.Id, row.LastAssignedAt, row.OpenTicketPriorities).Load,
+                row.OpenTicketPriorities.Count,
+                row.Id == ticket.AssigneeAgentId))
+            // A stable sort, so agents with the same load stay in name order.
+            .OrderBy(agent => agent.Load)
+            .ToList();
+
+        return new AssignableAgentsDto(ticket.Status, agents);
     }
 
     // The entries whose old and new values are agent Ids, or category Ids (see Ticket).

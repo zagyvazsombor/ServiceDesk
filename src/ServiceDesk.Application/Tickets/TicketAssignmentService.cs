@@ -12,7 +12,9 @@ public sealed class TicketAssignmentService(
     IAssignmentStrategy assignmentStrategy,
     TimeProvider timeProvider)
 {
-    public async Task<Result> AutoAssignAsync(Ticket ticket, CancellationToken ct)
+    // On success the value is the Id of the selected agent; null when no agent is eligible (BR-06), and then the
+    // ticket is left unchanged.
+    public async Task<Result<Guid?>> AutoAssignAsync(Ticket ticket, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(ticket);
 
@@ -20,7 +22,7 @@ public sealed class TicketAssignmentService(
         var agentId = assignmentStrategy.SelectAgent(candidates); // BR-05
         if (agentId is null)
         {
-            return Result.Success(); // BR-06: the ticket stays New, without an assignee.
+            return Result.Success<Guid?>(null); // BR-06
         }
 
         // Agents are never deleted, so a candidate that cannot be loaded is a programming error.
@@ -28,6 +30,7 @@ public sealed class TicketAssignmentService(
             ?? throw new InvalidOperationException($"The selected agent {agentId} does not exist.");
 
         // null actor = system. AssignTo checks BR-03 and BR-04 again and records the assignment on the agent (BR-05).
-        return ticket.AssignTo(agent, actorUserId: null, timeProvider.GetUtcNow());
+        var assignment = ticket.AssignTo(agent, actorUserId: null, timeProvider.GetUtcNow());
+        return assignment.IsSuccess ? agent.Id : assignment.Error;
     }
 }
