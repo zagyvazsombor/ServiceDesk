@@ -3,6 +3,7 @@ using ServiceDesk.Domain.Tickets;
 namespace ServiceDesk.Application.Tickets.GetTicketDetails;
 
 // AssigneeName: null while the ticket has no assignee. History: in sequence order (BR-10).
+// CategorySuggestion: only in the Admin view, and only if the reporter decided about an AI suggestion (BR-09).
 public sealed record TicketDetailsDto(
     Guid Id,
     string Title,
@@ -16,4 +17,5 @@ public sealed record TicketDetailsDto(
     string CategoryCode,
     string CategoryName,
     string? AssigneeName,
-    IReadOnlyList<TicketHistoryEntryDto> History);
+    IReadOnlyList<TicketHistoryEntryDto> History,
+    TicketCategorySuggestionDto? CategorySuggestion = null);

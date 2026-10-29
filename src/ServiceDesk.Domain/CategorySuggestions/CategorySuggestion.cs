@@ -84,4 +84,28 @@ public sealed class CategorySuggestion
             Decision = CategorySuggestionDecision.Pending,
         };
     }
+
+    // BR-09: the Reporter accepted or overrode the suggestion on the create form; recorded with the new ticket.
+    public Result Decide(Guid ticketId, CategorySuggestionDecision decision, DateTimeOffset now)
+    {
+        if (ticketId == Guid.Empty)
+        {
+            throw new ArgumentException("The ticket Id must not be empty.", nameof(ticketId));
+        }
+
+        if (decision is not (CategorySuggestionDecision.Accepted or CategorySuggestionDecision.Overridden))
+        {
+            throw new ArgumentOutOfRangeException(nameof(decision), decision, "The decision must be Accepted or Overridden.");
+        }
+
+        if (Decision != CategorySuggestionDecision.Pending)
+        {
+            return CategorySuggestionErrors.AlreadyDecided; // BR-09
+        }
+
+        TicketId = ticketId;
+        Decision = decision;
+        DecidedAt = now;
+        return Result.Success();
+    }
 }

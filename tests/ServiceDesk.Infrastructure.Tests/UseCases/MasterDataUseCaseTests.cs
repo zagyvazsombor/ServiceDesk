@@ -269,6 +269,7 @@ public sealed class MasterDataUseCaseTests(DatabaseFixture database) : Integrati
                     AsReporter(),
                     new CreateTicketValidator(),
                     services.GetRequiredService<ICategoryRepository>(),
+                    services.GetRequiredService<ICategorySuggestionRepository>(),
                     services.GetRequiredService<ITicketRepository>(),
                     new TicketAssignmentService(agentRepository, new LeastLoadedAssignmentStrategy(), _time),
                     services.GetRequiredService<IUnitOfWork>(),

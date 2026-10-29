@@ -16,6 +16,7 @@ using ServiceDesk.Application.Tickets.GetTicketDetails;
 using ServiceDesk.Application.Tickets.RecategorizeTicket;
 using ServiceDesk.Application.Tickets.RetryAutoAssign;
 using ServiceDesk.Application.Tickets.StartWork;
+using ServiceDesk.Domain.CategorySuggestions;
 using ServiceDesk.Domain.Common;
 using ServiceDesk.Domain.Tickets;
 using ServiceDesk.Web.Components.Pages.Tickets;
@@ -104,6 +105,88 @@ public sealed class TicketDetailsAdminTests : BunitContext
         // Assert
         cut.Find("#ticket-title").TextContent.ShouldBe(ticket.Title);
         cut.FindAll("#admin-panel").ShouldBeEmpty();
+    }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public void Render_AdminWithAcceptedSuggestion_ShowsSuggestionConfidenceDecisionAndReasoning()
+    {
+        // Arrange
+        const string reasoning = "A <i>wifi</i> a hálózathoz tartozik.";
+        var ticket = Details(TicketStatus.Assigned, assigneeName: "Kiss Anna") with
+        {
+            CategorySuggestion = new TicketCategorySuggestionDto(
+                "Hálózat", 0.9, reasoning, CategorySuggestionDecision.Accepted, "gemma3:4b", "v1", CreatedAt),
+        };
+        DetailsReturn(ticket);
+
+        // Act
+        var cut = RenderDetails(ticket.Id);
+
+        // Assert
+        cut.Find("#ai-suggestion-category").TextContent.ShouldBe("Javasolt kategória: Hálózat");
+        cut.Find("#ai-suggestion-confidence").TextContent.ShouldBe("Megbízhatóság: 90%");
+        cut.Find("#ai-suggestion-decision").TextContent.ShouldContain("Elfogadva");
+        var reasoningElement = cut.Find("#ai-suggestion-reasoning");
+        reasoningElement.TextContent.ShouldBe(reasoning);
+        reasoningElement.QuerySelector("i").ShouldBeNull(); // AGENTS.md §6: no MarkupString for LLM output
+        cut.Find("#ai-suggestion-info").TextContent.ShouldContain("gemma3:4b");
+    }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public void Render_AdminWithOverriddenSuggestion_ShowsOverridden()
+    {
+        // Arrange
+        var ticket = Details(TicketStatus.New) with
+        {
+            CategorySuggestion = new TicketCategorySuggestionDto(
+                "Szoftver", 0.4, "Alkalmazáshiba.", CategorySuggestionDecision.Overridden, "gemma3:4b", "v1", CreatedAt),
+        };
+        DetailsReturn(ticket);
+
+        // Act
+        var cut = RenderDetails(ticket.Id);
+
+        // Assert
+        cut.Find("#ai-suggestion-decision").TextContent.ShouldContain("Felülbírálva");
+    }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public void Render_AdminWithoutSuggestion_ShowsThatTicketHasNoSuggestion()
+    {
+        // Arrange
+        var ticket = Details(TicketStatus.New);
+        DetailsReturn(ticket);
+
+        // Act
+        var cut = RenderDetails(ticket.Id);
+
+        // Assert
+        cut.Find("#ai-suggestion-none").TextContent.ShouldContain("nem tartozik AI-javaslat");
+        cut.FindAll("#ai-suggestion-decision").ShouldBeEmpty();
+    }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public void Render_Reporter_DoesNotShowSuggestionInfo()
+    {
+        // Arrange
+        _authorization.SetRoles(Roles.Reporter);
+        var ticket = Details(TicketStatus.Assigned, assigneeName: "Kiss Anna") with
+        {
+            CategorySuggestion = new TicketCategorySuggestionDto(
+                "Hálózat", 0.9, "Wifi.", CategorySuggestionDecision.Accepted, "gemma3:4b", "v1", CreatedAt),
+        };
+        DetailsReturn(ticket);
+
+        // Act
+        var cut = RenderDetails(ticket.Id);
+
+        // Assert
+        cut.Find("#ticket-title").TextContent.ShouldBe(ticket.Title);
+        cut.FindAll("#ai-suggestion-info").ShouldBeEmpty();
     }
 
     [Fact]

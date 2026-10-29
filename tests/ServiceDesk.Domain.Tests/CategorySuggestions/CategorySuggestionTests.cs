@@ -147,6 +147,64 @@ public sealed class CategorySuggestionTests
         Should.Throw<ArgumentException>(() => CreateWith(promptVersion: promptVersion));
     }
 
+    [Theory]
+    [Trait("BR", "BR-09")]
+    [InlineData(CategorySuggestionDecision.Accepted)]
+    [InlineData(CategorySuggestionDecision.Overridden)]
+    public void Decide_PendingSuggestion_RecordsTicketDecisionAndTime(CategorySuggestionDecision decision)
+    {
+        // Arrange
+        var suggestion = CreateWith().Value;
+        var ticketId = Guid.CreateVersion7();
+        var decidedAt = TestData.Now.AddMinutes(3);
+
+        // Act
+        var result = suggestion.Decide(ticketId, decision, decidedAt);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        suggestion.TicketId.ShouldBe(ticketId);
+        suggestion.Decision.ShouldBe(decision);
+        suggestion.DecidedAt.ShouldBe(decidedAt);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public void Decide_AlreadyDecided_ReturnsAlreadyDecidedAndKeepsFirstDecision()
+    {
+        // Arrange
+        var suggestion = CreateWith().Value;
+        var firstTicketId = Guid.CreateVersion7();
+        suggestion.Decide(firstTicketId, CategorySuggestionDecision.Accepted, TestData.Now).IsSuccess.ShouldBeTrue();
+
+        // Act
+        var result = suggestion.Decide(Guid.CreateVersion7(), CategorySuggestionDecision.Overridden, TestData.Now.AddMinutes(1));
+
+        // Assert
+        result.Error.ShouldBe(CategorySuggestionErrors.AlreadyDecided);
+        suggestion.TicketId.ShouldBe(firstTicketId);
+        suggestion.Decision.ShouldBe(CategorySuggestionDecision.Accepted);
+        suggestion.DecidedAt.ShouldBe(TestData.Now);
+    }
+
+    [Theory]
+    [InlineData(CategorySuggestionDecision.Pending)]
+    [InlineData((CategorySuggestionDecision)99)]
+    public void Decide_NotAHumanDecision_ThrowsArgumentOutOfRangeException(CategorySuggestionDecision decision)
+    {
+        var suggestion = CreateWith().Value;
+
+        Should.Throw<ArgumentOutOfRangeException>(() => suggestion.Decide(Guid.CreateVersion7(), decision, TestData.Now));
+    }
+
+    [Fact]
+    public void Decide_EmptyTicketId_ThrowsArgumentException()
+    {
+        var suggestion = CreateWith().Value;
+
+        Should.Throw<ArgumentException>(() => suggestion.Decide(Guid.Empty, CategorySuggestionDecision.Accepted, TestData.Now));
+    }
+
     private Result<CategorySuggestion> CreateWith(
         Category? category = null,
         double confidence = 0.5,

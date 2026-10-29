@@ -57,6 +57,7 @@ else if (_details is { } ticket)
 
     <AuthorizeView Roles="@Roles.Admin">
         <TicketAdminPanel Ticket="ticket" OnChanged="LoadAsync" />
+        <TicketCategorySuggestionInfo Suggestion="ticket.CategorySuggestion" />
     </AuthorizeView>
 
     <MudPaper Class="pa-4 mb-4">

@@ -32,5 +32,10 @@ public sealed class CreateTicketValidator : AbstractValidator<CreateTicketComman
         RuleFor(command => command.CategoryId)
             .NotEmpty()
             .WithMessage("Válassz kategóriát.");
+
+        // BR-09: optional, but when given it refers to a saved suggestion.
+        RuleFor(command => command.SuggestionId)
+            .NotEqual(Guid.Empty)
+            .WithMessage("Érvénytelen kategóriajavaslat, kérj újat, vagy válassz kézzel.");
     }
 }

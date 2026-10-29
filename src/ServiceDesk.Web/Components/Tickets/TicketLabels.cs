@@ -1,5 +1,6 @@
 using System.Globalization;
 using MudBlazor;
+using ServiceDesk.Domain.CategorySuggestions;
 using ServiceDesk.Domain.Tickets;
 
 namespace ServiceDesk.Web.Components.Tickets;
@@ -106,6 +107,26 @@ public static class TicketLabels
             _ => $"{oldText} → {newText ?? "–"}",
         };
     }
+
+    // BR-09: the decision of the Reporter about the AI suggestion; a ticket only ever shows Accepted or Overridden.
+    public static string SuggestionDecisionText(CategorySuggestionDecision decision) => decision switch
+    {
+        CategorySuggestionDecision.Pending => "Döntésre vár",
+        CategorySuggestionDecision.Accepted => "Elfogadva",
+        CategorySuggestionDecision.Overridden => "Felülbírálva",
+        _ => throw new ArgumentOutOfRangeException(nameof(decision), decision, "Unknown suggestion decision."),
+    };
+
+    public static Color SuggestionDecisionColor(CategorySuggestionDecision decision) => decision switch
+    {
+        CategorySuggestionDecision.Pending => Color.Default,
+        CategorySuggestionDecision.Accepted => Color.Success,
+        CategorySuggestionDecision.Overridden => Color.Warning,
+        _ => throw new ArgumentOutOfRangeException(nameof(decision), decision, "Unknown suggestion decision."),
+    };
+
+    // The confidence of the model (0–1) as a whole percentage.
+    public static string ConfidenceText(double confidence) => confidence.ToString("P0", HungarianCulture);
 
     // An inactive category or agent can still be on tickets (BR-12, BR-13), so it stays selectable with a marker.
     public static string NameWithActiveState(string name, bool isActive) => isActive ? name : $"{name} (inaktív)";

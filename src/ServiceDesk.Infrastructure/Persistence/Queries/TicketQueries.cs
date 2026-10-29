@@ -121,6 +121,9 @@ internal sealed class TicketQueries(AppDbContext dbContext) : ITicketQueries
         var agentNames = await GetAgentNamesAsync(ReferencedIds(details.History, RefersToAgent), ct);
         var categoryNames = await GetCategoryNamesAsync(ReferencedIds(details.History, RefersToCategory), ct);
 
+        // BR-09: the Admin also sees the AI suggestion decided on the create form; the Reporter view never loads it.
+        var categorySuggestion = reporterId is null ? await GetCategorySuggestionAsync(details.Id, ct) : null;
+
         string? ResolveValue(TicketHistoryAction action, string? value)
         {
             var names = RefersToAgent(action) ? agentNames
@@ -152,7 +155,8 @@ internal sealed class TicketQueries(AppDbContext dbContext) : ITicketQueries
                     entry.ActorUserId is null ? null : actorNames.GetValueOrDefault(entry.ActorUserId),
                     ResolveValue(entry.Action, entry.OldValue),
                     ResolveValue(entry.Action, entry.NewValue)))
-                .ToList());
+                .ToList(),
+            categorySuggestion);
     }
 
     public async Task<PagedResult<TicketQueueItemDto>> GetTicketQueueAsync(
@@ -398,6 +402,28 @@ internal sealed class TicketQueries(AppDbContext dbContext) : ITicketQueries
                 .AsNoTracking()
                 .Where(category => categoryIds.Contains(category.Id))
                 .ToDictionaryAsync(category => category.Id, category => category.Name, ct);
+
+    // CreateTicketHandler links at most one suggestion to a ticket; the order only makes the answer deterministic.
+    private Task<TicketCategorySuggestionDto?> GetCategorySuggestionAsync(Guid ticketId, CancellationToken ct) =>
+        dbContext.CategorySuggestions
+            .AsNoTracking()
+            .Where(suggestion => suggestion.TicketId == ticketId)
+            .Join(
+                dbContext.Categories,
+                suggestion => suggestion.SuggestedCategoryId,
+                category => category.Id,
+                (suggestion, category) => new { Suggestion = suggestion, CategoryName = category.Name })
+            .OrderByDescending(row => row.Suggestion.DecidedAt)
+            .ThenByDescending(row => row.Suggestion.Id)
+            .Select(row => new TicketCategorySuggestionDto(
+                row.CategoryName,
+                row.Suggestion.Confidence,
+                row.Suggestion.Reasoning,
+                row.Suggestion.Decision,
+                row.Suggestion.Model,
+                row.Suggestion.PromptVersion,
+                row.Suggestion.DecidedAt))
+            .FirstOrDefaultAsync(ct);
 
     private sealed record HistoryRow(
         int Sequence,

@@ -117,4 +117,28 @@ public sealed class CreateTicketValidatorTests
         failure.PropertyName.ShouldBe(nameof(CreateTicketCommand.CategoryId));
         failure.ErrorMessage.ShouldBe("Válassz kategóriát.");
     }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public void Validate_EmptySuggestionId_ReturnsSuggestionError()
+    {
+        // Act
+        var result = _validator.Validate(ValidCommand with { SuggestionId = Guid.Empty });
+
+        // Assert
+        result.Errors.ShouldHaveSingleItem().PropertyName.ShouldBe(nameof(CreateTicketCommand.SuggestionId));
+    }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public void Validate_NoOrSavedSuggestionId_IsValid()
+    {
+        // Act
+        var withoutSuggestion = _validator.Validate(ValidCommand with { SuggestionId = null });
+        var withSuggestion = _validator.Validate(ValidCommand with { SuggestionId = Guid.CreateVersion7() });
+
+        // Assert
+        withoutSuggestion.IsValid.ShouldBeTrue();
+        withSuggestion.IsValid.ShouldBeTrue();
+    }
 }

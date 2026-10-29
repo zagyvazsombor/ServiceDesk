@@ -20,7 +20,8 @@ public interface ITicketQueries
     Task<IReadOnlyList<ActiveCategoryDto>> GetActiveCategoriesAsync(CancellationToken ct);
 
     // BR-02: with a reporterId the ticket is found only if it belongs to that reporter (AGENTS.md §8, level 3);
-    // null means any ticket (Admin). null if the ticket is not found.
+    // null means any ticket (Admin), and only then the details carry the AI suggestion of the ticket (BR-09).
+    // null if the ticket is not found.
     Task<TicketDetailsDto?> GetTicketDetailsAsync(Guid ticketId, string? reporterId, CancellationToken ct);
 
     // Admin queue: the tickets matching every filter of the query; highest priority first, then oldest first.

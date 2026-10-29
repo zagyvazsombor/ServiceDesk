@@ -8,6 +8,7 @@ using ServiceDesk.Application.Tickets;
 using ServiceDesk.Application.Tickets.CreateTicket;
 using ServiceDesk.Domain.Assignment;
 using ServiceDesk.Domain.Categories;
+using ServiceDesk.Domain.CategorySuggestions;
 using ServiceDesk.Domain.Common;
 using ServiceDesk.Domain.Tickets;
 using Shouldly;
@@ -18,6 +19,7 @@ namespace ServiceDesk.Application.Tests.Tickets.CreateTicket;
 public sealed class CreateTicketHandlerTests
 {
     private readonly ICategoryRepository _categories = Substitute.For<ICategoryRepository>();
+    private readonly ICategorySuggestionRepository _suggestions = Substitute.For<ICategorySuggestionRepository>();
     private readonly ITicketRepository _tickets = Substitute.For<ITicketRepository>();
     private readonly IAgentRepository _agents = Substitute.For<IAgentRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
@@ -191,6 +193,149 @@ public sealed class CreateTicketHandlerTests
     }
 
     [Fact]
+    [Trait("BR", "BR-09")]
+    public async Task HandleAsync_SuggestionOfChosenCategory_DecidesAcceptedAndSavesOnce()
+    {
+        // Arrange
+        var suggestion = SuggestionOf(TestUsers.UserId, _category);
+        var command = ValidCommand() with { SuggestionId = suggestion.Id };
+
+        // Act
+        var result = await CreateHandler(TestUsers.Reporter()).HandleAsync(command, CancellationToken);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        suggestion.Decision.ShouldBe(CategorySuggestionDecision.Accepted);
+        suggestion.TicketId.ShouldBe(result.Value);
+        suggestion.DecidedAt.ShouldBe(TestData.Now);
+        await _unitOfWork.Received(1).SaveChangesAsync(CancellationToken);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public async Task HandleAsync_SuggestionOfOtherCategory_DecidesOverriddenAndKeepsChosenCategory()
+    {
+        // Arrange
+        var suggestion = SuggestionOf(TestUsers.UserId, TestData.CreateCategory("NETWORK"));
+        var command = ValidCommand() with { SuggestionId = suggestion.Id };
+
+        // Act
+        var result = await CreateHandler(TestUsers.Reporter()).HandleAsync(command, CancellationToken);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        _addedTicket.ShouldNotBeNull().CategoryId.ShouldBe(_category.Id);
+        suggestion.Decision.ShouldBe(CategorySuggestionDecision.Overridden);
+        suggestion.TicketId.ShouldBe(result.Value);
+        suggestion.DecidedAt.ShouldBe(TestData.Now);
+        await _unitOfWork.Received(1).SaveChangesAsync(CancellationToken);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public async Task HandleAsync_SuggestionOfOtherUser_ReturnsNotFoundWithoutChangesAndLogsWarning()
+    {
+        // Arrange
+        var suggestion = SuggestionOf("other-reporter", _category);
+        var command = ValidCommand() with { SuggestionId = suggestion.Id };
+
+        // Act
+        var result = await CreateHandler(TestUsers.Reporter()).HandleAsync(command, CancellationToken);
+
+        // Assert
+        result.Error.ShouldBe(CategorySuggestionErrors.NotFound);
+        suggestion.Decision.ShouldBe(CategorySuggestionDecision.Pending);
+        suggestion.TicketId.ShouldBeNull();
+        await ShouldNotHaveCreatedTicketAsync();
+        var entry = _logger.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Properties["UserId"].ShouldBe(TestUsers.UserId);
+        entry.Properties["SuggestionId"].ShouldBe(suggestion.Id);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public async Task HandleAsync_UnknownSuggestion_ReturnsNotFoundWithoutChanges()
+    {
+        // Arrange
+        var command = ValidCommand() with { SuggestionId = Guid.CreateVersion7() };
+
+        // Act
+        var result = await CreateHandler(TestUsers.Reporter()).HandleAsync(command, CancellationToken);
+
+        // Assert
+        result.Error.ShouldBe(CategorySuggestionErrors.NotFound);
+        await ShouldNotHaveCreatedTicketAsync();
+    }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public async Task HandleAsync_AlreadyDecidedSuggestion_ReturnsAlreadyDecidedWithoutChanges()
+    {
+        // Arrange
+        var suggestion = SuggestionOf(TestUsers.UserId, _category);
+        var firstTicketId = Guid.CreateVersion7();
+        suggestion.Decide(firstTicketId, CategorySuggestionDecision.Accepted, TestData.Now.AddMinutes(-1)).IsSuccess.ShouldBeTrue();
+        var command = ValidCommand() with { SuggestionId = suggestion.Id };
+
+        // Act
+        var result = await CreateHandler(TestUsers.Reporter()).HandleAsync(command, CancellationToken);
+
+        // Assert
+        result.Error.ShouldBe(CategorySuggestionErrors.AlreadyDecided);
+        suggestion.TicketId.ShouldBe(firstTicketId);
+        await ShouldNotHaveCreatedTicketAsync();
+    }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public async Task HandleAsync_EmptySuggestionId_ReturnsValidationErrorWithoutLoadingSuggestion()
+    {
+        // Arrange
+        var command = ValidCommand() with { SuggestionId = Guid.Empty };
+
+        // Act
+        var result = await CreateHandler(TestUsers.Reporter()).HandleAsync(command, CancellationToken);
+
+        // Assert
+        result.Error.Code.ShouldBe($"Validation.{nameof(CreateTicketCommand.SuggestionId)}");
+        await _suggestions.DidNotReceiveWithAnyArgs().GetByIdAsync(default, CancellationToken);
+        await ShouldNotHaveCreatedTicketAsync();
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithoutSuggestion_DoesNotLoadSuggestion()
+    {
+        // Act
+        var result = await CreateHandler(TestUsers.Reporter()).HandleAsync(ValidCommand(), CancellationToken);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        await _suggestions.DidNotReceiveWithAnyArgs().GetByIdAsync(default, CancellationToken);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public async Task HandleAsync_SuggestionDecided_LogsDecisionWithoutReasoning()
+    {
+        // Arrange
+        var suggestion = SuggestionOf(TestUsers.UserId, _category);
+        var command = ValidCommand() with { SuggestionId = suggestion.Id };
+
+        // Act
+        var result = await CreateHandler(TestUsers.Reporter()).HandleAsync(command, CancellationToken);
+
+        // Assert
+        _logger.Entries.Count.ShouldBe(2);
+        var entry = _logger.Entries[1];
+        entry.Level.ShouldBe(LogLevel.Information);
+        entry.Properties["SuggestionId"].ShouldBe(suggestion.Id);
+        entry.Properties["TicketId"].ShouldBe(result.Value);
+        entry.Properties["Decision"].ShouldBe(CategorySuggestionDecision.Accepted);
+        entry.Properties.Keys.ShouldBe(["SuggestionId", "TicketId", "Decision", "{OriginalFormat}"], ignoreOrder: true);
+    }
+
+    [Fact]
     public async Task HandleAsync_ConcurrencyConflictOnSave_ReturnsConflictWithoutLog()
     {
         // Arrange
@@ -211,6 +356,7 @@ public sealed class CreateTicketHandlerTests
         currentUser,
         new CreateTicketValidator(),
         _categories,
+        _suggestions,
         _tickets,
         new TicketAssignmentService(_agents, new LeastLoadedAssignmentStrategy(), _time),
         _unitOfWork,
@@ -220,7 +366,30 @@ public sealed class CreateTicketHandlerTests
     private async Task ShouldNotHaveTouchedDataAsync()
     {
         await _categories.DidNotReceiveWithAnyArgs().GetByIdAsync(default, CancellationToken);
+        await _suggestions.DidNotReceiveWithAnyArgs().GetByIdAsync(default, CancellationToken);
         _tickets.DidNotReceiveWithAnyArgs().Add(default!);
+        await _unitOfWork.DidNotReceiveWithAnyArgs().SaveChangesAsync(CancellationToken);
+    }
+
+    // A Pending suggestion of the given user, as SuggestCategoryHandler saved it; the repository returns it.
+    private CategorySuggestion SuggestionOf(string requestedByUserId, Category suggestedCategory)
+    {
+        var suggestion = CategorySuggestion.Create(
+            requestedByUserId,
+            suggestedCategory,
+            0.82,
+            "A leírás szerint a laptop nem kapcsol be.",
+            "gemma3:4b",
+            "v1",
+            TestData.Now.AddMinutes(-2)).Value;
+        _suggestions.GetByIdAsync(suggestion.Id, Arg.Any<CancellationToken>()).Returns(suggestion);
+        return suggestion;
+    }
+
+    private async Task ShouldNotHaveCreatedTicketAsync()
+    {
+        _tickets.DidNotReceiveWithAnyArgs().Add(default!);
+        await _agents.DidNotReceiveWithAnyArgs().GetEligibleCandidatesAsync(default, CancellationToken);
         await _unitOfWork.DidNotReceiveWithAnyArgs().SaveChangesAsync(CancellationToken);
     }
 }

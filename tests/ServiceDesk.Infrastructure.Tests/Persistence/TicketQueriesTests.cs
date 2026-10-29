@@ -11,6 +11,7 @@ using ServiceDesk.Application.Tickets.GetTicketQueue;
 using ServiceDesk.Application.Tickets.GetTicketQueueFilters;
 using ServiceDesk.Domain.Agents;
 using ServiceDesk.Domain.Categories;
+using ServiceDesk.Domain.CategorySuggestions;
 using ServiceDesk.Domain.Tickets;
 using ServiceDesk.Infrastructure.Tests.Builders;
 using Shouldly;
@@ -248,6 +249,57 @@ public sealed class TicketQueriesTests(DatabaseFixture database) : IntegrationTe
                 (6, TicketHistoryAction.Recategorized, "Kiss Anna", "Hardver", "Halozat"),
             ]);
         details.History[^1].At.ShouldBe(TestTime.Now.AddHours(2));
+    }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public async Task GetTicketDetailsAsync_DecidedSuggestion_ReturnedOnlyWithoutReporterFilter()
+    {
+        // Arrange: a decided suggestion of the ticket, and a Pending one of the same reporter that belongs to no ticket.
+        var reporter = new UserBuilder().Build();
+        var hardware = new CategoryBuilder().WithCode("HARDWARE").WithName("Hardver").Build();
+        var network = new CategoryBuilder().WithCode("NETWORK").WithName("Halozat").Build();
+        var ticket = new TicketBuilder(reporter, hardware).Build();
+        var decided = CategorySuggestion.Create(
+            reporter.Id, network, 0.82, "A wifi hálózati hiba.", "gemma3:4b", "v1", TestTime.Now).Value;
+        decided.Decide(ticket.Id, CategorySuggestionDecision.Overridden, TestTime.Now.AddMinutes(1)).EnsureSuccess();
+        var pending = CategorySuggestion.Create(
+            reporter.Id, hardware, 0.5, "Másik kérés.", "gemma3:4b", "v1", TestTime.Now).Value;
+        await SaveAsync(reporter, hardware, network, ticket, decided, pending);
+
+        // Act
+        var adminDetails = await GetTicketDetailsAsync(ticket.Id, reporterId: null);
+        var reporterDetails = await GetTicketDetailsAsync(ticket.Id, reporter.Id);
+
+        // Assert
+        adminDetails.ShouldNotBeNull().CategorySuggestion.ShouldBe(new TicketCategorySuggestionDto(
+            "Halozat",
+            0.82,
+            "A wifi hálózati hiba.",
+            CategorySuggestionDecision.Overridden,
+            "gemma3:4b",
+            "v1",
+            TestTime.Now.AddMinutes(1)));
+        reporterDetails.ShouldNotBeNull().CategorySuggestion.ShouldBeNull();
+    }
+
+    [Fact]
+    [Trait("BR", "BR-09")]
+    public async Task GetTicketDetailsAsync_TicketWithoutSuggestion_ReturnsNoSuggestion()
+    {
+        // Arrange
+        var reporter = new UserBuilder().Build();
+        var hardware = new CategoryBuilder().Build();
+        var ticket = new TicketBuilder(reporter, hardware).Build();
+        var pending = CategorySuggestion.Create(
+            reporter.Id, hardware, 0.5, "El nem döntött kérés.", "gemma3:4b", "v1", TestTime.Now).Value;
+        await SaveAsync(reporter, hardware, ticket, pending);
+
+        // Act
+        var details = await GetTicketDetailsAsync(ticket.Id, reporterId: null);
+
+        // Assert
+        details.ShouldNotBeNull().CategorySuggestion.ShouldBeNull();
     }
 
     [Fact]

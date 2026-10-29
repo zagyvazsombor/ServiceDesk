@@ -2,6 +2,8 @@
 @attribute [Authorize(Roles = Roles.Reporter)]
 @using ServiceDesk.Application.Tickets.CreateTicket
 @using ServiceDesk.Application.Tickets.GetActiveCategories
+@using ServiceDesk.Application.Tickets.SuggestCategory
+@using ServiceDesk.Domain.CategorySuggestions
 @using ServiceDesk.Domain.Common
 @using ServiceDesk.Domain.Tickets
 @using ServiceDesk.Web.Components.Tickets
@@ -30,12 +32,13 @@ else
 
     <MudPaper Class="pa-4" MaxWidth="800px">
         <MudForm @ref="_form">
-            <MudTextField T="string" @bind-Value="_title" @bind-Value:after="() => ClearFieldError(TitleField)"
+            @* Immediate: the suggestion button and the stale hint follow the text while it is typed. *@
+            <MudTextField T="string" @bind-Value="_title" @bind-Value:after="() => ClearFieldError(TitleField)" Immediate="true"
                           Label="Cím" Required="true" RequiredError="Add meg a jegy címét."
                           MaxLength="Ticket.TitleMaxLength" Counter="Ticket.TitleMaxLength"
                           Error="HasFieldError(TitleField)" ErrorText="@FieldErrorText(TitleField)" />
 
-            <MudTextField T="string" @bind-Value="_description" @bind-Value:after="() => ClearFieldError(DescriptionField)"
+            <MudTextField T="string" @bind-Value="_description" @bind-Value:after="() => ClearFieldError(DescriptionField)" Immediate="true"
                           Label="Leírás" Lines="6" Sizing="InputSizing.Auto" MaxLines="20"
                           Required="true" RequiredError="Írd le a problémát."
                           MaxLength="Ticket.DescriptionMaxLength" Counter="Ticket.DescriptionMaxLength"
@@ -61,7 +64,72 @@ else
                 }
             </MudSelect>
 
-            <MudSelect T="Guid?" @bind-Value="_categoryId" @bind-Value:after="() => ClearFieldError(CategoryField)"
+            @* BR-08, BR-09: the AI only suggests; the category is set by the Reporter, and the manual choice below always
+               works, with or without a suggestion. *@
+            <div class="mt-4">
+                <MudButton id="suggestion-request" Variant="Variant.Outlined" Color="Color.Secondary"
+                           StartIcon="@Icons.Material.Filled.AutoAwesome" Disabled="!CanRequestSuggestion" OnClick="RequestSuggestionAsync">
+                    AI-javaslat kérése
+                </MudButton>
+                @if (!TextReadyForSuggestion)
+                {
+                    <MudText id="suggestion-hint" Typo="Typo.caption" Class="d-block mt-1">
+                        A javaslathoz add meg a címet (legalább @Ticket.TitleMinLength karakter) és a leírást (legalább @Ticket.DescriptionMinLength karakter).
+                    </MudText>
+                }
+
+                @if (_suggesting)
+                {
+                    <MudProgressLinear id="suggestion-progress" Color="Color.Secondary" Indeterminate="true" Class="mt-2" />
+                }
+
+                @if (_suggestionError is { } suggestionError)
+                {
+                    <MudAlert id="suggestion-error" Severity="Severity.Info" Dense="true" Class="mt-2">@suggestionError</MudAlert>
+                }
+
+                @if (_suggestion is { } suggestion)
+                {
+                    <MudCard id="suggestion-card" Outlined="true" Class="mt-2">
+                        <MudCardContent>
+                            <MudText Typo="Typo.subtitle1">AI-javaslat: <b id="suggestion-category">@suggestion.CategoryName</b></MudText>
+                            <MudText id="suggestion-confidence" Typo="Typo.body2">Megbízhatóság: @TicketLabels.ConfidenceText(suggestion.Confidence)</MudText>
+                            @* AGENTS.md §6, §9: model output is plain text, encoded by Razor (no MarkupString). *@
+                            <MudText id="suggestion-reasoning" Typo="Typo.body2" Class="mt-2" Style="white-space: pre-wrap;">@suggestion.Reasoning</MudText>
+
+                            @if (IsSuggestionStale)
+                            {
+                                <MudAlert id="suggestion-stale" Severity="Severity.Warning" Dense="true" Class="mt-2">
+                                    A javaslat kérése óta módosult a cím vagy a leírás, ezért a javaslat elavulhatott. Kérhetsz újat.
+                                </MudAlert>
+                            }
+
+                            @if (_categoryId == suggestion.CategoryId)
+                            {
+                                <MudText id="suggestion-decision" Typo="Typo.caption" Class="d-block mt-2">
+                                    A javasolt kategória van kiválasztva, rögzítéskor elfogadásként mentjük.
+                                </MudText>
+                            }
+                            else if (_categoryId is not null)
+                            {
+                                <MudText id="suggestion-decision" Typo="Typo.caption" Class="d-block mt-2">
+                                    Más kategóriát választottál, rögzítéskor a javaslat felülbírálásaként mentjük.
+                                </MudText>
+                            }
+                        </MudCardContent>
+                        <MudCardActions>
+                            <MudButton id="suggestion-accept" Variant="Variant.Filled" Color="Color.Primary" Disabled="_submitting" OnClick="AcceptSuggestion">
+                                Elfogadom
+                            </MudButton>
+                            <MudButton id="suggestion-other" Variant="Variant.Text" Color="Color.Primary" Disabled="_submitting" OnClick="ChooseOtherCategoryAsync">
+                                Mást választok
+                            </MudButton>
+                        </MudCardActions>
+                    </MudCard>
+                }
+            </div>
+
+            <MudSelect T="Guid?" @ref="_categorySelect" @bind-Value="_categoryId" @bind-Value:after="() => ClearFieldError(CategoryField)"
                        Label="Kategória" Required="true" RequiredError="Válassz kategóriát."
                        ToStringFunc="CategoryName" HelperText="@SelectedCategory?.Description"
                        Error="HasFieldError(CategoryField)" ErrorText="@FieldErrorText(CategoryField)">
@@ -79,7 +147,8 @@ else
             </MudAlert>
         }
 
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" Disabled="_submitting" OnClick="SubmitAsync">
+        @* While a suggestion is on its way the ticket waits for it, so the suggestion does not stay undecided. *@
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" Disabled="_submitting || _suggesting" OnClick="SubmitAsync">
             Jegy rögzítése
         </MudButton>
     </MudPaper>
@@ -100,6 +169,7 @@ else
     private Dictionary<string, IReadOnlyList<string>> _fieldErrors = new(StringComparer.Ordinal);
     private IReadOnlyList<ActiveCategoryDto>? _categories;
     private MudForm? _form;
+    private MudSelect<Guid?>? _categorySelect;
     private bool _submitting;
 
     private string _title = string.Empty;
@@ -108,11 +178,29 @@ else
     private Urgency? _urgency;
     private Guid? _categoryId;
 
+    // BR-09: the suggestion shown on the form, with the text it was asked for; the ticket carries its Id.
+    private CategorySuggestionDto? _suggestion;
+    private string _suggestedTitle = string.Empty;
+    private string _suggestedDescription = string.Empty;
+    private string? _suggestionError;
+    private bool _suggesting;
+
     // BR-11: for information only, from the matrix of the domain; the ticket gets its priority from Ticket.Create.
     private Priority? ExpectedPriority =>
         _impact is { } impact && _urgency is { } urgency ? PriorityMatrix.Calculate(impact, urgency) : null;
 
     private ActiveCategoryDto? SelectedCategory => _categories?.FirstOrDefault(category => category.Id == _categoryId);
+
+    // The limits of SuggestCategoryValidator (AGENTS.md §10), so the button is only active for text the use case accepts.
+    private bool TextReadyForSuggestion =>
+        Normalize(_title).Length is >= Ticket.TitleMinLength and <= Ticket.TitleMaxLength
+        && Normalize(_description).Length is >= Ticket.DescriptionMinLength and <= Ticket.DescriptionMaxLength;
+
+    private bool CanRequestSuggestion => TextReadyForSuggestion && !_suggesting && !_submitting;
+
+    private bool IsSuggestionStale =>
+        _suggestion is not null
+        && (Normalize(_title) != _suggestedTitle || Normalize(_description) != _suggestedDescription);
 
     protected override async Task OnInitializedAsync()
     {
@@ -129,9 +217,72 @@ else
         _categories = result.Value;
     }
 
+    private async Task RequestSuggestionAsync()
+    {
+        if (!CanRequestSuggestion)
+        {
+            return;
+        }
+
+        _suggesting = true;
+        _suggestionError = null;
+        try
+        {
+            var command = new SuggestCategoryCommand(_title, _description);
+            var result = await Runner.RunAsync(
+                (SuggestCategoryHandler handler, CancellationToken ct) => handler.HandleAsync(command, ct),
+                _cts.Token);
+            if (result.IsSuccess)
+            {
+                _suggestion = result.Value;
+                _suggestedTitle = Normalize(command.Title);
+                _suggestedDescription = Normalize(command.Description);
+                return;
+            }
+
+            // BR-08: no suggestion (also the rate limit) is not a failure of the form; the category is chosen by hand.
+            if (result.Error.Type == ErrorType.Unavailable)
+            {
+                _suggestionError = result.Error.Message;
+                return;
+            }
+
+            ShowError(result.Error);
+        }
+        finally
+        {
+            _suggesting = false;
+        }
+    }
+
+    // BR-09: only sets the field; the decision is recorded with the ticket, from the category chosen at that moment.
+    private void AcceptSuggestion()
+    {
+        if (_suggestion is null)
+        {
+            return;
+        }
+
+        _categoryId = _suggestion.CategoryId;
+        ClearFieldError(CategoryField);
+    }
+
+    private async Task ChooseOtherCategoryAsync()
+    {
+        if (_suggestion is not null && _categoryId == _suggestion.CategoryId)
+        {
+            _categoryId = null;
+        }
+
+        if (_categorySelect is not null)
+        {
+            await _categorySelect.OpenMenu();
+        }
+    }
+
     private async Task SubmitAsync()
     {
-        if (_form is null || _submitting)
+        if (_form is null || _submitting || _suggesting)
         {
             return;
         }
@@ -147,7 +298,8 @@ else
         _submitting = true;
         try
         {
-            var command = new CreateTicketCommand(_title, _description, _impact, _urgency, _categoryId ?? Guid.Empty);
+            var command = new CreateTicketCommand(
+                _title, _description, _impact, _urgency, _categoryId ?? Guid.Empty, _suggestion?.SuggestionId);
             var result = await Runner.RunAsync(
                 (CreateTicketHandler handler, CancellationToken ct) => handler.HandleAsync(command, ct),
                 _cts.Token);
@@ -156,6 +308,12 @@ else
                 Snackbar.Add("A jegy rögzítve.", Severity.Success);
                 NavigationManager.NavigateTo($"tickets/{result.Value}");
                 return;
+            }
+
+            // The suggestion can no longer be decided (e.g. another tab used it), so the next attempt goes without it.
+            if (result.Error == CategorySuggestionErrors.NotFound || result.Error == CategorySuggestionErrors.AlreadyDecided)
+            {
+                _suggestion = null;
             }
 
             ShowError(result.Error);
@@ -188,6 +346,9 @@ else
 
     private string CategoryName(Guid? categoryId) =>
         _categories?.FirstOrDefault(category => category.Id == categoryId)?.Name ?? string.Empty;
+
+    // The use cases trim the text the same way.
+    private static string Normalize(string? text) => text?.Trim() ?? string.Empty;
 
     public void Dispose()
     {

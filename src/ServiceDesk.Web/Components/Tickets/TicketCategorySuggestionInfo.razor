@@ -1,0 +1,33 @@
+@using ServiceDesk.Application.Tickets.GetTicketDetails
+
+@* BR-09: what the AI suggested on the create form and what the Reporter decided; the details query fills it only for
+   the Admin. *@
+<MudPaper id="ai-suggestion-info" Class="pa-4 mb-4">
+    <MudText Typo="Typo.h6" GutterBottom="true">AI-kategóriajavaslat</MudText>
+
+    @if (Suggestion is { } suggestion)
+    {
+        <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="2" Class="mb-2">
+            <MudText id="ai-suggestion-category">Javasolt kategória: <b>@suggestion.SuggestedCategoryName</b></MudText>
+            <MudText id="ai-suggestion-confidence">Megbízhatóság: @TicketLabels.ConfidenceText(suggestion.Confidence)</MudText>
+            <MudChip id="ai-suggestion-decision" T="string" Size="Size.Small"
+                     Text="@TicketLabels.SuggestionDecisionText(suggestion.Decision)"
+                     Color="TicketLabels.SuggestionDecisionColor(suggestion.Decision)" />
+        </MudStack>
+        @* AGENTS.md §6, §9: model output is plain text, encoded by Razor (no MarkupString). *@
+        <MudText id="ai-suggestion-reasoning" Typo="Typo.body2" Style="white-space: pre-wrap;">@suggestion.Reasoning</MudText>
+        <MudText Typo="Typo.caption">
+            @suggestion.Model · prompt @suggestion.PromptVersion@(suggestion.DecidedAt is { } decidedAt ? $" · döntés: {TicketLabels.FormatDateTime(decidedAt)}" : string.Empty)
+        </MudText>
+    }
+    else
+    {
+        @* Also the case when the suggestion failed (BR-08): only a decided suggestion is linked to the ticket. *@
+        <MudText id="ai-suggestion-none" Typo="Typo.body2">Ehhez a jegyhez nem tartozik AI-javaslat, a kategóriát a bejelentő kézzel választotta.</MudText>
+    }
+</MudPaper>
+
+@code {
+    [Parameter]
+    public TicketCategorySuggestionDto? Suggestion { get; set; }
+}

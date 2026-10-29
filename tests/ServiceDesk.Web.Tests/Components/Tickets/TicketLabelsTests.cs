@@ -1,4 +1,5 @@
 using MudBlazor;
+using ServiceDesk.Domain.CategorySuggestions;
 using ServiceDesk.Domain.Tickets;
 using ServiceDesk.Web.Components.Tickets;
 using Shouldly;
@@ -101,6 +102,37 @@ public sealed class TicketLabelsTests
     {
         // Act
         var text = TicketLabels.HistoryChangeText(action, oldValue, newValue);
+
+        // Assert
+        text.ShouldBe(expected);
+    }
+
+    [Theory]
+    [Trait("BR", "BR-09")]
+    [InlineData(CategorySuggestionDecision.Pending, "Döntésre vár", Color.Default)]
+    [InlineData(CategorySuggestionDecision.Accepted, "Elfogadva", Color.Success)]
+    [InlineData(CategorySuggestionDecision.Overridden, "Felülbírálva", Color.Warning)]
+    public void SuggestionDecision_Decision_ReturnsHungarianTextAndColor(
+        CategorySuggestionDecision decision, string expectedText, Color expectedColor)
+    {
+        // Act
+        var text = TicketLabels.SuggestionDecisionText(decision);
+        var color = TicketLabels.SuggestionDecisionColor(decision);
+
+        // Assert
+        text.ShouldBe(expectedText);
+        color.ShouldBe(expectedColor);
+    }
+
+    [Theory]
+    [InlineData(0.0, "0%")]
+    [InlineData(0.824, "82%")]
+    [InlineData(0.826, "83%")]
+    [InlineData(1.0, "100%")]
+    public void ConfidenceText_Confidence_ReturnsWholePercentage(double confidence, string expected)
+    {
+        // Act
+        var text = TicketLabels.ConfidenceText(confidence);
 
         // Assert
         text.ShouldBe(expected);

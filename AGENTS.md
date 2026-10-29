@@ -84,7 +84,7 @@ Függőségi szabályok (KÖTELEZŐ, az architektúra-tesztek ellenőrzik):
 - Üzleti szabály megsértése `Result` / `Result<T>` + `Error` visszatéréssel jelez. Kivételt csak programozási hiba dob (pl. `null` argumentum).
 - Nincs I/O és nincs időlekérdezés: az időpont `DateTimeOffset now`, a végrehajtó `string? actorUserId` paraméter (`null` = rendszer).
 - Azonosítók: entitás `Guid` (`Guid.CreateVersion7()` a factoryban); felhasználó `string` (az Identity `IdentityUser.Id`-ja).
-- `Result`, `Error`, `ErrorType` a `Domain/Common` mappában; hibakódok központi statikus osztályokban: `TicketErrors`, `AgentErrors`, `CategoryErrors`.
+- `Result`, `Error`, `ErrorType` a `Domain/Common` mappában; hibakódok központi statikus osztályokban: `TicketErrors`, `AgentErrors`, `CategoryErrors`, `CategorySuggestionErrors`.
 
 ### Application
 
