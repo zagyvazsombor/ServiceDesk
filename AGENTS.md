@@ -326,6 +326,7 @@ Terhelési súly: Critical 5, High 4, Medium 3, Low 2, Planning 1.
 - **BR-11** A prioritás mindig a Hatás × Sürgősség mátrixból számított érték, közvetlenül nem állítható. A Bejelentő létrehozáskor megadja a hatást és a sürgősséget; Admin triázskor módosíthatja őket.
 - **BR-12** Ügyintéző inaktiválása nem érinti a már kiosztott jegyeit; ezeket csak Admin oszthatja át kézzel. Inaktív ügyintéző új jegyet nem kaphat (BR-04).
 - **BR-13** Kategória nem törölhető, csak inaktiválható. Inaktív kategória új jegyhez nem választható és nem javasolható; a meglévő jegyeken megmarad.
+  - Az ügyintéző meglévő kompetenciája a kategória inaktiválása után is megmarad; új kompetenciaként csak aktív kategória vehető fel.
 
 ## 11. Hibakezelés és naplózás
 

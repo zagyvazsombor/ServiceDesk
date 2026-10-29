@@ -1,4 +1,5 @@
 using ServiceDesk.Domain.Agents;
+using ServiceDesk.Domain.Categories;
 using Shouldly;
 
 namespace ServiceDesk.Domain.Tests.Agents;
@@ -102,6 +103,66 @@ public sealed class AgentTests
 
         result.Error.ShouldBe(AgentErrors.CompetencyCategoryInvalid);
         agent.Competencies.ShouldHaveSingleItem().CategoryId.ShouldBe(hardware);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-13")]
+    public void UpdateCompetencies_ActiveCategories_ReplacesCompetencySet()
+    {
+        var hardware = TestData.CreateCategory("HARDWARE");
+        var network = TestData.CreateCategory("NETWORK");
+        var software = TestData.CreateCategory("SOFTWARE");
+        var agent = TestData.CreateAgent(hardware, network);
+
+        var result = agent.UpdateCompetencies([network, software]);
+
+        result.IsSuccess.ShouldBeTrue();
+        agent.Competencies.Select(competency => competency.CategoryId).ShouldBe([network.Id, software.Id], ignoreOrder: true);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-13")]
+    public void UpdateCompetencies_NewInactiveCategory_ReturnsCategoryInactiveAndKeepsCompetencies()
+    {
+        var hardware = TestData.CreateCategory("HARDWARE");
+        var other = TestData.CreateInactiveCategory("OTHER");
+        var agent = TestData.CreateAgent(hardware);
+
+        var result = agent.UpdateCompetencies([hardware, other]);
+
+        result.Error.ShouldBe(CategoryErrors.Inactive);
+        agent.Competencies.ShouldHaveSingleItem().CategoryId.ShouldBe(hardware.Id);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-13")]
+    public void UpdateCompetencies_KeptCompetencyOfDeactivatedCategory_KeepsIt()
+    {
+        var hardware = TestData.CreateCategory("HARDWARE");
+        var other = TestData.CreateCategory("OTHER");
+        var network = TestData.CreateCategory("NETWORK");
+        var agent = TestData.CreateAgent(hardware, other);
+        other.Deactivate();
+
+        var result = agent.UpdateCompetencies([other, network]);
+
+        result.IsSuccess.ShouldBeTrue();
+        agent.Competencies.Select(competency => competency.CategoryId).ShouldBe([other.Id, network.Id], ignoreOrder: true);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-13")]
+    public void UpdateCompetencies_DeactivatedCategoryLeftOut_RemovesIt()
+    {
+        var hardware = TestData.CreateCategory("HARDWARE");
+        var other = TestData.CreateCategory("OTHER");
+        var agent = TestData.CreateAgent(hardware, other);
+        other.Deactivate();
+
+        var result = agent.UpdateCompetencies([hardware]);
+
+        result.IsSuccess.ShouldBeTrue();
+        agent.Competencies.ShouldHaveSingleItem().CategoryId.ShouldBe(hardware.Id);
     }
 
     [Fact]

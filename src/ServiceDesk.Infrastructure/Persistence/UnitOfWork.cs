@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ServiceDesk.Application.Common.Errors;
 using ServiceDesk.Application.Common.Persistence;
+using ServiceDesk.Domain.Categories;
 using ServiceDesk.Domain.Common;
 using ServiceDesk.Infrastructure.Persistence.Configurations;
 
@@ -36,9 +37,22 @@ internal sealed class UnitOfWork(AppDbContext dbContext, ILogger<UnitOfWork> log
             logger.LogWarning(exception, "Concurrency conflict while appending ticket history.");
             return GeneralErrors.ConcurrencyConflict;
         }
+        catch (DbUpdateException exception) when (IsDuplicateCategoryCode(exception))
+        {
+            // The validator checks the code before the save; two categories created with the same code at the same time
+            // both pass it, and the unique index refuses the second one.
+            logger.LogWarning(exception, "Duplicate category code while saving.");
+            return CategoryErrors.CodeAlreadyExists;
+        }
     }
 
     private static bool IsConcurrentHistoryAppend(DbUpdateException exception) =>
+        IsUniqueIndexViolation(exception, TicketHistoryEntryConfiguration.SequenceIndexName);
+
+    private static bool IsDuplicateCategoryCode(DbUpdateException exception) =>
+        IsUniqueIndexViolation(exception, CategoryConfiguration.CodeIndexName);
+
+    private static bool IsUniqueIndexViolation(DbUpdateException exception, string indexName) =>
         exception.InnerException is SqlException { Number: UniqueIndexViolation } sqlException
-        && sqlException.Message.Contains(TicketHistoryEntryConfiguration.SequenceIndexName, StringComparison.Ordinal);
+        && sqlException.Message.Contains(indexName, StringComparison.Ordinal);
 }

@@ -1,3 +1,4 @@
+using ServiceDesk.Domain.Categories;
 using ServiceDesk.Domain.Common;
 
 namespace ServiceDesk.Domain.Agents;
@@ -73,6 +74,20 @@ public sealed class Agent
         }
 
         return Result.Success();
+    }
+
+    // The Admin use case: replaces the competency set like SetCompetencies, with the categories themselves. A new
+    // competency needs an active category; one the agent already has stays, even if its category was deactivated.
+    public Result UpdateCompetencies(IReadOnlyCollection<Category> categories)
+    {
+        ArgumentNullException.ThrowIfNull(categories);
+
+        if (categories.Any(category => !category.IsActive && !HasCompetency(category.Id)))
+        {
+            return CategoryErrors.Inactive; // BR-13
+        }
+
+        return SetCompetencies(categories.Select(category => category.Id));
     }
 
     public void Activate() => IsActive = true;

@@ -6,6 +6,9 @@ namespace ServiceDesk.Infrastructure.Persistence.Configurations;
 
 internal sealed class CategoryConfiguration : IEntityTypeConfiguration<Category>
 {
+    // Named explicitly because the UnitOfWork recognizes a duplicate code by it; the name is the EF Core default.
+    public const string CodeIndexName = "IX_Categories_Code";
+
     public void Configure(EntityTypeBuilder<Category> builder)
     {
         builder.ToTable("Categories");
@@ -16,6 +19,6 @@ internal sealed class CategoryConfiguration : IEntityTypeConfiguration<Category>
         builder.Property(category => category.Name).HasMaxLength(Category.NameMaxLength);
         builder.Property(category => category.Description).HasMaxLength(Category.DescriptionMaxLength);
 
-        builder.HasIndex(category => category.Code).IsUnique();
+        builder.HasIndex(category => category.Code).IsUnique().HasDatabaseName(CodeIndexName);
     }
 }

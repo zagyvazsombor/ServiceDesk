@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using ServiceDesk.Application.Agents.ListAgents;
+using ServiceDesk.Application.Categories.ListCategories;
 using ServiceDesk.Application.Common.Paging;
 using ServiceDesk.Application.Common.Persistence;
 using ServiceDesk.Application.Tickets.GetActiveCategories;
@@ -289,6 +291,62 @@ internal sealed class TicketQueries(AppDbContext dbContext) : ITicketQueries
             .ToList();
 
         return new AssignableAgentsDto(ticket.Status, agents);
+    }
+
+    public async Task<IReadOnlyList<CategoryListItemDto>> GetCategoriesAsync(CancellationToken ct) =>
+        await dbContext.Categories
+            .AsNoTracking()
+            .OrderBy(category => category.Name)
+            .Select(category => new CategoryListItemDto(
+                category.Id,
+                category.Code,
+                category.Name,
+                category.Description,
+                category.IsActive))
+            .ToListAsync(ct);
+
+    // A split query: one statement for the agents and one for each collection, so there is no N+1 and the competencies
+    // and the open tickets of an agent do not multiply each other's rows.
+    public async Task<IReadOnlyList<AgentListItemDto>> GetAgentsAsync(CancellationToken ct)
+    {
+        var rows = await dbContext.Agents
+            .AsNoTracking()
+            .OrderBy(agent => agent.DisplayName)
+            .ThenBy(agent => agent.Id)
+            .Select(agent => new
+            {
+                agent.Id,
+                agent.DisplayName,
+                agent.IsActive,
+                agent.LastAssignedAt,
+                Competencies = agent.Competencies
+                    .Join(
+                        dbContext.Categories,
+                        competency => competency.CategoryId,
+                        category => category.Id,
+                        (competency, category) => category)
+                    .OrderBy(category => category.Name)
+                    .Select(category => new AgentCompetencyDto(category.Id, category.Code, category.Name, category.IsActive))
+                    .ToList(),
+                OpenTicketPriorities = dbContext.Tickets
+                    .Where(ticket => ticket.AssigneeAgentId == agent.Id
+                        && (ticket.Status == TicketStatus.Assigned || ticket.Status == TicketStatus.InProgress)) // BR-05
+                    .Select(ticket => ticket.Priority)
+                    .ToList(),
+            })
+            .AsSplitQuery()
+            .ToListAsync(ct);
+
+        return rows
+            .Select(row => new AgentListItemDto(
+                row.Id,
+                row.DisplayName,
+                row.IsActive,
+                row.Competencies,
+                // BR-05: the same load as the automatic assignment uses; an inactive agent keeps its tickets (BR-12).
+                new AgentCandidate(row.Id, row.LastAssignedAt, row.OpenTicketPriorities).Load,
+                row.OpenTicketPriorities.Count))
+            .ToList();
     }
 
     // The entries whose old and new values are agent Ids, or category Ids (see Ticket).

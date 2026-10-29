@@ -182,4 +182,26 @@ public sealed class CategoryTests
         ticket.CategoryId.ShouldBe(category.Id);
         ticket.Status.ShouldBe(TicketStatus.Assigned);
     }
+
+    [Theory]
+    [InlineData("AB")]
+    [InlineData("ACCESS_CONTROL")]
+    [InlineData("ABCDEFGHIJKLMNOPQRSTUVWXYZ_ABC")]
+    public void IsValidCode_ValidCode_ReturnsTrue(string code)
+    {
+        Category.IsValidCode(code).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("A")]
+    [InlineData("ABCDEFGHIJKLMNOPQRSTUVWXYZ_ABCD")]
+    [InlineData("hardware")]
+    [InlineData("HARD-WARE")]
+    [InlineData(" HARDWARE")]
+    [InlineData("ÁRAM")]
+    public void IsValidCode_InvalidCode_ReturnsFalse(string code)
+    {
+        Category.IsValidCode(code).ShouldBeFalse();
+    }
 }

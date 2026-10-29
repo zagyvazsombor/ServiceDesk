@@ -24,6 +24,12 @@ public static class CategoryErrors
         "A kategória nem található.",
         ErrorType.NotFound);
 
+    // Category.Code is unique; the Application validator and the unique index both refuse a duplicate.
+    public static readonly Error CodeAlreadyExists = new(
+        "Category.CodeAlreadyExists",
+        "Ezzel a kóddal már létezik kategória.",
+        ErrorType.Conflict);
+
     public static readonly Error Inactive = new(
         "Category.Inactive",
         "Inaktív kategória nem választható.",

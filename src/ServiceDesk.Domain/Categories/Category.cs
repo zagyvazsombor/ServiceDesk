@@ -92,10 +92,15 @@ public sealed class Category
     // BR-13: a category is never deleted, only deactivated; existing tickets keep it.
     public void Deactivate() => IsActive = false;
 
-    // ^[A-Z_]+$
-    private static bool IsValidCode(string code) =>
-        code.Length is >= CodeMinLength and <= CodeMaxLength
-        && code.All(static character => character is (>= 'A' and <= 'Z') or '_');
+    // ^[A-Z_]+$ with 2–30 characters. Public, so the Application validators check the same rule; the caller trims the
+    // code first, as Create does.
+    public static bool IsValidCode(string code)
+    {
+        ArgumentNullException.ThrowIfNull(code);
+
+        return code.Length is >= CodeMinLength and <= CodeMaxLength
+            && code.All(static character => character is (>= 'A' and <= 'Z') or '_');
+    }
 
     private static bool IsValidName(string name) =>
         name.Length is >= NameMinLength and <= NameMaxLength;

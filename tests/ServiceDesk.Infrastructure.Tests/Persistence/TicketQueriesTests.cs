@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
+using ServiceDesk.Application.Agents.ListAgents;
+using ServiceDesk.Application.Categories.ListCategories;
 using ServiceDesk.Application.Common.Paging;
 using ServiceDesk.Application.Common.Persistence;
 using ServiceDesk.Application.Tickets.GetActiveCategories;
@@ -494,6 +496,90 @@ public sealed class TicketQueriesTests(DatabaseFixture database) : IntegrationTe
 
         // Assert
         assignableAgents.ShouldBeNull();
+    }
+
+    [Fact]
+    [Trait("BR", "BR-13")]
+    public async Task GetCategoriesAsync_ActiveAndInactiveCategories_ReturnsEveryCategoryByName()
+    {
+        // Arrange
+        var software = new CategoryBuilder().WithCode("SOFTWARE").WithName("Szoftver").Build();
+        var hardware = new CategoryBuilder().WithCode("HARDWARE").WithName("Hardver").Build();
+        var other = new CategoryBuilder().WithCode("OTHER").WithName("Egyeb").Build();
+        other.Deactivate();
+        await SaveAsync(software, hardware, other);
+
+        // Act
+        IReadOnlyList<CategoryListItemDto> categories;
+        await using (var scope = Database.CreateScope())
+        {
+            categories = await scope.ServiceProvider.GetRequiredService<ITicketQueries>()
+                .GetCategoriesAsync(CancellationToken);
+        }
+
+        // Assert
+        categories.ShouldBe(
+        [
+            new CategoryListItemDto(other.Id, "OTHER", "Egyeb", other.Description, IsActive: false),
+            new CategoryListItemDto(hardware.Id, "HARDWARE", "Hardver", hardware.Description, IsActive: true),
+            new CategoryListItemDto(software.Id, "SOFTWARE", "Szoftver", software.Description, IsActive: true),
+        ]);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-05")]
+    [Trait("BR", "BR-12")]
+    [Trait("BR", "BR-13")]
+    public async Task GetAgentsAsync_AgentsWithCompetenciesAndTickets_ReturnsEveryAgentWithCompetenciesAndLoad()
+    {
+        // Arrange
+        var reporter = new UserBuilder().Build();
+        var users = Enumerable.Range(0, 3).Select(_ => new UserBuilder().Build()).ToArray();
+        var hardware = new CategoryBuilder().WithCode("HARDWARE").WithName("Hardver").Build();
+        var network = new CategoryBuilder().WithCode("NETWORK").WithName("Halozat").Build();
+        var other = new CategoryBuilder().WithCode("OTHER").WithName("Egyeb").Build();
+        var csaba = new AgentBuilder(users[0]).WithDisplayName("Tóth Csaba").Build();
+        var anna = new AgentBuilder(users[1]).WithDisplayName("Kiss Anna").WithCompetencies(hardware, network, other).Build();
+        var bela = new AgentBuilder(users[2]).WithDisplayName("Nagy Béla").WithCompetencies(hardware).Build();
+        var tickets = new[]
+        {
+            // Open tickets of Anna: High + Critical.
+            new TicketBuilder(reporter, hardware).WithImpactAndUrgency(Impact.High, Urgency.Medium)
+                .InStatus(TicketStatus.Assigned, anna, users[1]).Build(),
+            new TicketBuilder(reporter, network).WithImpactAndUrgency(Impact.High, Urgency.High)
+                .InStatus(TicketStatus.InProgress, anna, users[1]).Build(),
+            // Not open: they do not count.
+            new TicketBuilder(reporter, hardware).InStatus(TicketStatus.Resolved, anna, users[1]).Build(),
+            new TicketBuilder(reporter, hardware).InStatus(TicketStatus.Closed, anna, users[1]).Build(),
+            // The open ticket of Béla, assigned before his deactivation: Medium.
+            new TicketBuilder(reporter, hardware).InStatus(TicketStatus.Assigned, bela, users[2]).Build(),
+        };
+        bela.Deactivate();
+        other.Deactivate();
+        await SaveAsync([reporter, .. users, hardware, network, other, csaba, anna, bela, .. tickets]);
+
+        // Act
+        IReadOnlyList<AgentListItemDto> agents;
+        await using (var scope = Database.CreateScope())
+        {
+            agents = await scope.ServiceProvider.GetRequiredService<ITicketQueries>().GetAgentsAsync(CancellationToken);
+        }
+
+        // Assert
+        agents.Select(agent => (agent.Id, agent.DisplayName, agent.IsActive, agent.Load, agent.OpenTicketCount)).ShouldBe(
+        [
+            (anna.Id, "Kiss Anna", true, 9, 2), // 4 + 5
+            (bela.Id, "Nagy Béla", false, 3, 1),
+            (csaba.Id, "Tóth Csaba", true, 0, 0),
+        ]);
+        agents[0].Competencies.ShouldBe(
+        [
+            new AgentCompetencyDto(other.Id, "OTHER", "Egyeb", IsActive: false),
+            new AgentCompetencyDto(network.Id, "NETWORK", "Halozat", IsActive: true),
+            new AgentCompetencyDto(hardware.Id, "HARDWARE", "Hardver", IsActive: true),
+        ]);
+        agents[1].Competencies.ShouldBe([new AgentCompetencyDto(hardware.Id, "HARDWARE", "Hardver", IsActive: true)]);
+        agents[2].Competencies.ShouldBeEmpty();
     }
 
     // Four tickets, one hour apart: HARDWARE New (Medium); HARDWARE Assigned to Anna (High);

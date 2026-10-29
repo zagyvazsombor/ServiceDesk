@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ServiceDesk.Application.Common.Errors;
 using ServiceDesk.Application.Common.Persistence;
+using ServiceDesk.Domain.Categories;
 using ServiceDesk.Domain.Common;
 using ServiceDesk.Domain.Tickets;
 using ServiceDesk.Infrastructure.Identity;
@@ -76,19 +77,40 @@ public sealed class UnitOfWorkTests(DatabaseFixture database) : IntegrationTest(
     }
 
     [Fact]
-    public async Task SaveChangesAsync_DuplicateCategoryCode_DoesNotReturnConcurrencyConflict()
+    public async Task SaveChangesAsync_DuplicateCategoryCode_ReturnsCodeAlreadyExists()
     {
-        // Arrange
+        // Arrange: the validator has not seen the other category, as with two categories created at the same time.
         await SaveAsync(new CategoryBuilder().WithCode("DUPLICATE").Build());
         await using var scope = Database.CreateScope();
         scope.ServiceProvider.GetRequiredService<ICategoryRepository>()
             .Add(new CategoryBuilder().WithCode("DUPLICATE").Build());
 
         // Act
+        var result = await SaveChangesAsync(scope);
+
+        // Assert
+        result.Error.ShouldBe(CategoryErrors.CodeAlreadyExists);
+        await using var readScope = Database.CreateScope();
+        var codes = await readScope.ServiceProvider.GetRequiredService<AppDbContext>().Categories
+            .Select(category => category.Code)
+            .ToListAsync(CancellationToken);
+        codes.ShouldBe(["DUPLICATE"]);
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_DuplicateAgentUser_ThrowsDbUpdateException()
+    {
+        // Arrange
+        var user = new UserBuilder().Build();
+        await SaveAsync(user, new AgentBuilder(user).Build());
+        await using var scope = Database.CreateScope();
+        scope.ServiceProvider.GetRequiredService<AppDbContext>().Agents.Add(new AgentBuilder(user).Build());
+
+        // Act
         var exception = await Should.ThrowAsync<DbUpdateException>(() => SaveChangesAsync(scope));
 
-        // Assert: only a concurrent history append is a conflict; any other unique index violation stays an
-        // unexpected error (AGENTS.md §11).
+        // Assert: only a concurrent history append and a duplicate category code are expected; any other unique index
+        // violation stays an unexpected error (AGENTS.md §11).
         exception.InnerException.ShouldBeOfType<SqlException>().Number.ShouldBe(UniqueIndexViolation);
     }
 

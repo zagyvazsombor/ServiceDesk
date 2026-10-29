@@ -1,3 +1,5 @@
+using ServiceDesk.Application.Agents.ListAgents;
+using ServiceDesk.Application.Categories.ListCategories;
 using ServiceDesk.Application.Common.Paging;
 using ServiceDesk.Application.Tickets.GetActiveCategories;
 using ServiceDesk.Application.Tickets.GetAssignableAgents;
@@ -30,4 +32,11 @@ public interface ITicketQueries
     // BR-04: the active agents with a competency for the category of the ticket, with their load (BR-05);
     // null if the ticket is not found.
     Task<AssignableAgentsDto?> GetAssignableAgentsAsync(Guid ticketId, CancellationToken ct);
+
+    // Master data: every category by name, the inactive ones too (BR-13).
+    Task<IReadOnlyList<CategoryListItemDto>> GetCategoriesAsync(CancellationToken ct);
+
+    // Master data: every agent by name, the inactive ones too, with their competencies by name and their load (BR-05);
+    // an inactive agent keeps its open tickets, so they still count (BR-12).
+    Task<IReadOnlyList<AgentListItemDto>> GetAgentsAsync(CancellationToken ct);
 }
