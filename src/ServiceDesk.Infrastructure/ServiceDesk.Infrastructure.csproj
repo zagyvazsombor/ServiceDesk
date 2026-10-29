@@ -7,11 +7,19 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+    <PackageReference Include="OllamaSharp" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\ServiceDesk.Application\ServiceDesk.Application.csproj" />
     <ProjectReference Include="..\ServiceDesk.Domain\ServiceDesk.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The AI adapters stay internal; their tests construct them with a fake IChatClient. -->
+    <InternalsVisibleTo Include="ServiceDesk.Infrastructure.Tests" />
   </ItemGroup>
 
 </Project>

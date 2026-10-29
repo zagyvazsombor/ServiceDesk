@@ -9,4 +9,10 @@ public static class AiErrors
         "Ai.NoSuggestion",
         "Most nem sikerült kategóriát javasolni, válassz kézzel.",
         ErrorType.Unavailable);
+
+    // AGENTS.md §8: more than 5 suggestion requests of the user within a minute.
+    public static readonly Error RateLimited = new(
+        "Ai.RateLimited",
+        "Túl sok javaslatkérés, próbáld újra egy perc múlva, vagy válassz kézzel.",
+        ErrorType.Unavailable);
 }

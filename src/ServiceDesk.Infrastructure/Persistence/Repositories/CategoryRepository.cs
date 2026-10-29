@@ -14,6 +14,13 @@ internal sealed class CategoryRepository(AppDbContext dbContext) : ICategoryRepo
             .Where(category => ids.Contains(category.Id))
             .ToListAsync(ct);
 
+    // Ordered by code, so the list of the LLM prompt is the same for every request.
+    public async Task<IReadOnlyList<Category>> GetActiveAsync(CancellationToken ct) =>
+        await dbContext.Categories
+            .Where(category => category.IsActive) // BR-13
+            .OrderBy(category => category.Code)
+            .ToListAsync(ct);
+
     public Task<bool> CodeExistsAsync(string code, CancellationToken ct) =>
         dbContext.Categories.AnyAsync(category => category.Code == code, ct);
 

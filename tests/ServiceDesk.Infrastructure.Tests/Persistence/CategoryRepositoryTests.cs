@@ -27,6 +27,26 @@ public sealed class CategoryRepositoryTests(DatabaseFixture database) : Integrat
             .ShouldBe([("HARDWARE", true), ("SOFTWARE", false)], ignoreOrder: true);
     }
 
+    [Fact]
+    [Trait("BR", "BR-13")]
+    public async Task GetActiveAsync_ActiveAndInactiveCategories_ReturnsOnlyActiveOnesByCode()
+    {
+        // Arrange
+        var software = new CategoryBuilder().WithCode("SOFTWARE").Build();
+        var hardware = new CategoryBuilder().WithCode("HARDWARE").Build();
+        var other = new CategoryBuilder().WithCode("OTHER").Build();
+        other.Deactivate();
+        await SaveAsync(software, hardware, other);
+
+        // Act
+        await using var scope = Database.CreateScope();
+        var categories = await scope.ServiceProvider.GetRequiredService<ICategoryRepository>()
+            .GetActiveAsync(CancellationToken);
+
+        // Assert
+        categories.Select(category => category.Code).ShouldBe(["HARDWARE", "SOFTWARE"]);
+    }
+
     [Theory]
     [InlineData("HARDWARE", true)]
     [InlineData("OTHER", true)]

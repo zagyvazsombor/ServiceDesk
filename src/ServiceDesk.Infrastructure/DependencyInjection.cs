@@ -2,7 +2,11 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
+using ServiceDesk.Application.Common.Ai;
 using ServiceDesk.Application.Common.Persistence;
+using ServiceDesk.Infrastructure.Ai;
 using ServiceDesk.Infrastructure.Identity;
 using ServiceDesk.Infrastructure.Persistence;
 using ServiceDesk.Infrastructure.Persistence.Queries;
@@ -32,6 +36,18 @@ public static class DependencyInjection
         services.AddScoped<ITicketQueries, TicketQueries>();
         services.Configure<SeedOptions>(configuration.GetSection(SeedOptions.SectionName));
         services.AddScoped<DatabaseSeeder>();
+
+        // AGENTS.md §9: a wrong Ai section stops the host at start-up; the provider is chosen from the validated
+        // options when the chat client is first resolved.
+        services.AddOptions<AiOptions>()
+            .Bind(configuration.GetSection(AiOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<AiOptions>, AiOptionsValidator>();
+        services.AddChatClient(ChatClientFactory.Create);
+        services.AddSingleton<ICategorySuggester, LlmCategorySuggester>();
+        services.AddSingleton<ISuggestionRateLimiter, SuggestionRateLimiter>();
+        // The clock of the suggestion timeout; the one of AddApplication (or of a test) is kept.
+        services.TryAddSingleton(TimeProvider.System);
 
         services.AddAuthentication(options =>
             {
