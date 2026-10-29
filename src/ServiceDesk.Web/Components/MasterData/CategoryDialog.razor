@@ -1,0 +1,157 @@
+@using ServiceDesk.Application.Categories.CreateCategory
+@using ServiceDesk.Application.Categories.ListCategories
+@using ServiceDesk.Application.Categories.UpdateCategory
+@using ServiceDesk.Domain.Categories
+@using ServiceDesk.Domain.Common
+@using ServiceDesk.Web.UseCases
+
+@implements IDisposable
+
+@inject IUseCaseRunner Runner
+@inject ISnackbar Snackbar
+
+@* Creates a category, or edits the one given. The dialog runs the use case itself, so a validation error (e.g. a code
+   that already exists) appears at its field and the input stays; it closes only on success. *@
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form">
+            @* AGENTS.md §8: the code cannot be changed, UpdateCategoryCommand has no code. *@
+            <MudTextField T="string" @bind-Value="_code" @bind-Value:after="() => ClearFieldError(CodeField)"
+                          Label="Kód" Disabled="!IsNew" Required="IsNew" RequiredError="Add meg a kategória kódját."
+                          MaxLength="Category.CodeMaxLength" Counter="Category.CodeMaxLength"
+                          HelperText="@(IsNew ? "Nagybetű (A–Z) és aláhúzásjel; később nem módosítható." : "A kód nem módosítható.")"
+                          Error="HasFieldError(CodeField)" ErrorText="@FieldErrorText(CodeField)" />
+
+            <MudTextField T="string" @bind-Value="_name" @bind-Value:after="() => ClearFieldError(NameField)"
+                          Label="Név" Required="true" RequiredError="Add meg a kategória nevét."
+                          MaxLength="Category.NameMaxLength" Counter="Category.NameMaxLength"
+                          Error="HasFieldError(NameField)" ErrorText="@FieldErrorText(NameField)" />
+
+            <MudTextField T="string" @bind-Value="_description" @bind-Value:after="() => ClearFieldError(DescriptionField)"
+                          Label="Leírás" Lines="3" HelperText="Rövid leírás; az automatikus kategóriajavaslat is ezt használja."
+                          MaxLength="Category.DescriptionMaxLength" Counter="Category.DescriptionMaxLength"
+                          Error="HasFieldError(DescriptionField)" ErrorText="@FieldErrorText(DescriptionField)" />
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Mégse</MudButton>
+        <MudButton id="category-submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="_saving" OnClick="SubmitAsync">
+            @(IsNew ? "Létrehozás" : "Mentés")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    // The property names of the commands, as the keys of Error.FieldErrors (AGENTS.md §11). UpdateCategoryCommand uses
+    // the same names for the name and the description.
+    private const string CodeField = nameof(CreateCategoryCommand.Code);
+    private const string NameField = nameof(CreateCategoryCommand.Name);
+    private const string DescriptionField = nameof(CreateCategoryCommand.Description);
+
+    private static readonly HashSet<string> FormFields = [CodeField, NameField, DescriptionField];
+
+    private readonly CancellationTokenSource _cts = new();
+    private Dictionary<string, IReadOnlyList<string>> _fieldErrors = new(StringComparer.Ordinal);
+    private MudForm? _form;
+    private bool _saving;
+
+    private string _code = string.Empty;
+    private string _name = string.Empty;
+    private string _description = string.Empty;
+
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    // null: a new category; otherwise the category to edit.
+    [Parameter]
+    public CategoryListItemDto? EditedCategory { get; set; }
+
+    private bool IsNew => EditedCategory is null;
+
+    protected override void OnInitialized()
+    {
+        if (EditedCategory is not null)
+        {
+            _code = EditedCategory.Code;
+            _name = EditedCategory.Name;
+            _description = EditedCategory.Description;
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_form is null || _saving)
+        {
+            return;
+        }
+
+        // The errors of the previous answer do not block a new attempt; the form checks the required fields again.
+        _fieldErrors = new(StringComparer.Ordinal);
+        await _form.ValidateAsync();
+        if (!_form.IsValid)
+        {
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var result = EditedCategory is null ? await CreateAsync() : await UpdateAsync(EditedCategory.Id);
+            if (result.IsSuccess)
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+                return;
+            }
+
+            ShowError(result.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task<Result> CreateAsync()
+    {
+        var command = new CreateCategoryCommand(_code, _name, _description);
+        return await Runner.RunAsync(
+            (CreateCategoryHandler handler, CancellationToken ct) => handler.HandleAsync(command, ct),
+            _cts.Token);
+    }
+
+    private Task<Result> UpdateAsync(Guid categoryId)
+    {
+        var command = new UpdateCategoryCommand(categoryId, _name, _description);
+        return Runner.RunAsync(
+            (UpdateCategoryHandler handler, CancellationToken ct) => handler.HandleAsync(command, ct),
+            _cts.Token);
+    }
+
+    // AGENTS.md §11: the validation errors appear at their fields, any other message in a Snackbar.
+    private void ShowError(Error error)
+    {
+        _fieldErrors = error.FieldErrors
+            .Where(field => FormFields.Contains(field.Key))
+            .ToDictionary(field => field.Key, field => field.Value, StringComparer.Ordinal);
+
+        if (_fieldErrors.Count == 0 || _fieldErrors.Count < error.FieldErrors.Count)
+        {
+            Snackbar.Add(error.Message, Severity.Error);
+        }
+    }
+
+    private bool HasFieldError(string field) => _fieldErrors.ContainsKey(field);
+
+    private string? FieldErrorText(string field) =>
+        _fieldErrors.TryGetValue(field, out var messages) ? string.Join(" ", messages) : null;
+
+    private void ClearFieldError(string field) => _fieldErrors.Remove(field);
+
+    private void Cancel() => MudDialog.Cancel();
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

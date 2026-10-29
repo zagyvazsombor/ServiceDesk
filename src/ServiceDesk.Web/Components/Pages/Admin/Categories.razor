@@ -1,7 +1,208 @@
 @page "/admin/categories"
 @attribute [Authorize(Roles = Roles.Admin)]
+@using ServiceDesk.Application.Categories.ActivateCategory
+@using ServiceDesk.Application.Categories.DeactivateCategory
+@using ServiceDesk.Application.Categories.ListCategories
+@using ServiceDesk.Domain.Common
+@using ServiceDesk.Web.Components.MasterData
+@using ServiceDesk.Web.UseCases
+
+@implements IDisposable
+
+@inject IUseCaseRunner Runner
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <PageTitle>Kategóriák – ServiceDesk</PageTitle>
 
-<MudText Typo="Typo.h3" GutterBottom="true">Kategóriák</MudText>
-<MudAlert Severity="Severity.Info">Ez az oldal egy későbbi lépésben készül el.</MudAlert>
+<MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-4">
+    <MudText Typo="Typo.h3">Kategóriák</MudText>
+    <MudButton id="create-category" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+               Disabled="_busy" OnClick="CreateAsync">
+        Új kategória
+    </MudButton>
+</MudStack>
+
+@* BR-13: a category is never deleted, only deactivated, so there is no delete action. The inactive categories are
+   listed too. *@
+<MudDataGrid T="CategoryListItemDto" Items="_categories" Loading="_loading" Hover="true"
+             SortMode="SortMode.None" Filterable="false">
+    <Columns>
+        <PropertyColumn Property="category => category.Code" Title="Kód" />
+        <PropertyColumn Property="category => category.Name" Title="Név" />
+        <PropertyColumn Property="category => category.Description" Title="Leírás" />
+        <TemplateColumn Title="Állapot">
+            <CellTemplate>
+                <ActiveStateChip IsActive="context.Item.IsActive" />
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Műveletek">
+            <CellTemplate>
+                <MudStack Row="true" Spacing="1">
+                    <MudButton id="@($"edit-category-{context.Item.Code}")" Size="Size.Small" Color="Color.Primary"
+                               Disabled="_busy" OnClick="() => EditAsync(context.Item)">
+                        Szerkesztés
+                    </MudButton>
+                    @if (context.Item.IsActive)
+                    {
+                        <MudButton id="@($"deactivate-category-{context.Item.Code}")" Size="Size.Small" Color="Color.Error"
+                                   Disabled="_busy" OnClick="() => DeactivateAsync(context.Item)">
+                            Inaktiválás
+                        </MudButton>
+                    }
+                    else
+                    {
+                        <MudButton id="@($"activate-category-{context.Item.Code}")" Size="Size.Small" Color="Color.Success"
+                                   Disabled="_busy" OnClick="() => ActivateAsync(context.Item)">
+                            Aktiválás
+                        </MudButton>
+                    }
+                </MudStack>
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <NoRecordsContent>
+        <MudText>Még nincs kategória.</MudText>
+    </NoRecordsContent>
+    <LoadingContent>
+        <MudText>Betöltés…</MudText>
+    </LoadingContent>
+</MudDataGrid>
+
+@code {
+    private static readonly DialogOptions DialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
+
+    private readonly CancellationTokenSource _cts = new();
+    private IReadOnlyList<CategoryListItemDto> _categories = [];
+    private bool _loading = true;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => LoadAsync(_cts.Token);
+
+    private async Task LoadAsync(CancellationToken token)
+    {
+        var result = await Runner.RunAsync(
+            (ListCategoriesHandler handler, CancellationToken ct) => handler.HandleAsync(new ListCategoriesQuery(), ct),
+            token);
+        _loading = false;
+        if (result.IsFailure)
+        {
+            Snackbar.Add(result.Error.Message, Severity.Error);
+            return;
+        }
+
+        _categories = result.Value;
+    }
+
+    private Task CreateAsync() => RunExclusiveAsync(async token =>
+    {
+        if (await ShowCategoryDialogAsync("Új kategória", category: null))
+        {
+            Snackbar.Add("A kategória létrehozva.", Severity.Success);
+            await LoadAsync(token);
+        }
+    });
+
+    private Task EditAsync(CategoryListItemDto category) => RunExclusiveAsync(async token =>
+    {
+        if (await ShowCategoryDialogAsync("Kategória szerkesztése", category))
+        {
+            Snackbar.Add("A kategória mentve.", Severity.Success);
+            await LoadAsync(token);
+        }
+    });
+
+    // The dialog runs CreateCategory or UpdateCategory itself and closes only on success.
+    private async Task<bool> ShowCategoryDialogAsync(string title, CategoryListItemDto? category)
+    {
+        var parameters = new DialogParameters<CategoryDialog> { { dialog => dialog.EditedCategory, category } };
+        var dialog = await DialogService.ShowAsync<CategoryDialog>(title, parameters, DialogOptions);
+        return await dialog.Result is { Canceled: false };
+    }
+
+    private Task DeactivateAsync(CategoryListItemDto category) => RunExclusiveAsync(async token =>
+    {
+        // BR-13: the category can no longer be chosen, suggested or added as a competency; nothing else changes.
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Kategória inaktiválása",
+            $"{category.Name} ({category.Code}): az inaktív kategória új jegyhez nem választható és nem javasolható, "
+            + "új kompetenciaként sem vehető fel. A meglévő jegyek és az ügyintézők meglévő kompetenciái megmaradnak. "
+            + "Biztosan inaktiválod?",
+            yesText: "Inaktiválás",
+            cancelText: "Mégse");
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        await RunCommandAsync(
+            (DeactivateCategoryHandler handler, CancellationToken ct) =>
+                handler.HandleAsync(new DeactivateCategoryCommand(category.Id), ct),
+            "A kategória inaktiválva.",
+            token);
+    });
+
+    private Task ActivateAsync(CategoryListItemDto category) => RunExclusiveAsync(async token =>
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Kategória aktiválása",
+            $"{category.Name} ({category.Code}): az aktív kategória újra választható új jegyhez, és kompetenciaként is "
+            + "felvehető. Biztosan aktiválod?",
+            yesText: "Aktiválás",
+            cancelText: "Mégse");
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        await RunCommandAsync(
+            (ActivateCategoryHandler handler, CancellationToken ct) =>
+                handler.HandleAsync(new ActivateCategoryCommand(category.Id), ct),
+            "A kategória aktiválva.",
+            token);
+    });
+
+    // One operation at a time; the buttons are disabled meanwhile. The token is taken before the first await, so an
+    // operation that outlives the page (e.g. an open dialog) sees it cancelled instead of a disposed source.
+    private async Task RunExclusiveAsync(Func<CancellationToken, Task> operation)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await operation(_cts.Token);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // The common end of the commands: on success a message and a reload of the list, otherwise the error.
+    private async Task RunCommandAsync<THandler>(
+        Func<THandler, CancellationToken, Task<Result>> useCase,
+        string successMessage,
+        CancellationToken token)
+        where THandler : notnull
+    {
+        var result = await Runner.RunAsync(useCase, token);
+        if (result.IsFailure)
+        {
+            Snackbar.Add(result.Error.Message, Severity.Error);
+            return;
+        }
+
+        Snackbar.Add(successMessage, Severity.Success);
+        await LoadAsync(token);
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

@@ -1,0 +1,6 @@
+<MudChip T="string" Text="@(IsActive ? "Aktív" : "Inaktív")" Color="@(IsActive ? Color.Success : Color.Default)" Size="Size.Small" />
+
+@code {
+    [Parameter, EditorRequired]
+    public bool IsActive { get; set; }
+}

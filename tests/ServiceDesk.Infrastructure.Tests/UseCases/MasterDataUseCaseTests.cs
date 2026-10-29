@@ -110,6 +110,27 @@ public sealed class MasterDataUseCaseTests(DatabaseFixture database) : Integrati
     }
 
     [Fact]
+    [Trait("BR", "BR-13")]
+    public async Task SetAgentCompetencies_DeactivatedCategoryLeftOut_KeepsIt()
+    {
+        // Arrange
+        var annaUser = new UserBuilder().Build();
+        var hardware = new CategoryBuilder().WithCode("HARDWARE").Build();
+        var network = new CategoryBuilder().WithCode("NETWORK").Build();
+        var other = new CategoryBuilder().WithCode("OTHER").Build();
+        var anna = new AgentBuilder(annaUser).WithCompetencies(hardware, other).Build();
+        other.Deactivate();
+        await SaveAsync(_admin, annaUser, hardware, network, other, anna);
+
+        // Act: only active categories, as the UI sends them.
+        var result = await SetCompetenciesAsync(anna.Id, network.Id);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        (await LoadCompetenciesAsync(anna.Id)).ShouldBe([other.Id, network.Id], ignoreOrder: true);
+    }
+
+    [Fact]
     [Trait("BR", "BR-04")]
     [Trait("BR", "BR-12")]
     public async Task DeactivateAgent_AgentWithOpenTickets_TicketsUnchangedAndNewTicketGoesToOtherAgent()

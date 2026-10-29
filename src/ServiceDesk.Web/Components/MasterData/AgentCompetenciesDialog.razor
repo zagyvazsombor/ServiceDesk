@@ -1,0 +1,83 @@
+@using ServiceDesk.Application.Agents.ListAgents
+@using ServiceDesk.Application.Tickets.GetActiveCategories
+
+@* Offers only the active categories and returns the chosen ones; SetAgentCompetencies checks them again on save. *@
+<MudDialog>
+    <DialogContent>
+        @if (Categories.Count == 0)
+        {
+            <MudAlert id="no-active-categories" Severity="Severity.Warning" Dense="true">Jelenleg nincs aktív kategória.</MudAlert>
+        }
+        else
+        {
+            <MudList T="Guid" SelectionMode="SelectionMode.MultiSelection" @bind-SelectedValues="_selected"
+                     CheckBoxColor="Color.Primary" Dense="true">
+                @foreach (var category in Categories)
+                {
+                    <MudListItem T="Guid" Value="category.Id" Text="@category.Name" SecondaryText="@category.Description" />
+                }
+            </MudList>
+        }
+
+        @if (_keptCompetencies.Count > 0)
+        {
+            @* BR-13: replacing the competencies does not touch those of inactive categories (SetAgentCompetencies). *@
+            <MudAlert id="kept-competencies" Severity="Severity.Info" Dense="true" Class="mt-2">
+                Az inaktív kategóriájú kompetenciák megmaradnak: @string.Join(", ", _keptCompetencies.Select(competency => competency.Name))
+            </MudAlert>
+        }
+
+        <MudText Typo="Typo.body2" Class="mt-2">A kompetencia elvétele nem érinti a már kiosztott jegyeket.</MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Mégse</MudButton>
+        <MudButton id="competencies-submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="!Changed" OnClick="Submit">
+            Mentés
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private HashSet<Guid> _current = [];
+    private IReadOnlyCollection<Guid>? _selected;
+    private IReadOnlyList<AgentCompetencyDto> _keptCompetencies = [];
+
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    // Only the active categories (BR-13).
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ActiveCategoryDto> Categories { get; set; } = [];
+
+    // The current competencies of the agent, those of inactive categories included.
+    [Parameter, EditorRequired]
+    public IReadOnlyList<AgentCompetencyDto> Competencies { get; set; } = [];
+
+    private bool Changed => !_current.SetEquals(_selected ?? []);
+
+    protected override void OnInitialized()
+    {
+        var activeCategoryIds = Categories.Select(category => category.Id).ToHashSet();
+        _current = Competencies
+            .Select(competency => competency.CategoryId)
+            .Where(activeCategoryIds.Contains)
+            .ToHashSet();
+        _selected = _current.ToList();
+        _keptCompetencies = Competencies
+            .Where(competency => !activeCategoryIds.Contains(competency.CategoryId))
+            .ToList();
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    // The chosen active categories in list order; the server keeps the competencies of inactive categories.
+    private void Submit()
+    {
+        var selected = _selected ?? [];
+        IReadOnlyList<Guid> categoryIds = Categories
+            .Where(category => selected.Contains(category.Id))
+            .Select(category => category.Id)
+            .ToList();
+        MudDialog.Close(DialogResult.Ok(categoryIds));
+    }
+}

@@ -1,7 +1,225 @@
 @page "/admin/agents"
 @attribute [Authorize(Roles = Roles.Admin)]
+@using ServiceDesk.Application.Agents.ActivateAgent
+@using ServiceDesk.Application.Agents.DeactivateAgent
+@using ServiceDesk.Application.Agents.ListAgents
+@using ServiceDesk.Application.Agents.SetAgentCompetencies
+@using ServiceDesk.Application.Tickets.GetActiveCategories
+@using ServiceDesk.Domain.Common
+@using ServiceDesk.Web.Components.MasterData
+@using ServiceDesk.Web.Components.Tickets
+@using ServiceDesk.Web.UseCases
+
+@implements IDisposable
+
+@inject IUseCaseRunner Runner
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <PageTitle>Ügyintézők – ServiceDesk</PageTitle>
 
 <MudText Typo="Typo.h3" GutterBottom="true">Ügyintézők</MudText>
-<MudAlert Severity="Severity.Info">Ez az oldal egy későbbi lépésben készül el.</MudAlert>
+
+@* The agent profiles come only from the seed; there is no creation here. The inactive agents are listed too. *@
+<MudDataGrid T="AgentListItemDto" Items="_agents" Loading="_loading" Hover="true"
+             SortMode="SortMode.None" Filterable="false">
+    <Columns>
+        <PropertyColumn Property="agent => agent.DisplayName" Title="Név" />
+        <TemplateColumn Title="Állapot">
+            <CellTemplate>
+                <ActiveStateChip IsActive="context.Item.IsActive" />
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Kompetenciák">
+            <CellTemplate>
+                @if (context.Item.Competencies.Count == 0)
+                {
+                    <MudText Typo="Typo.body2">Nincs kompetencia</MudText>
+                }
+                else
+                {
+                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                        @foreach (var competency in context.Item.Competencies)
+                        {
+                            @* BR-13: a competency of a deactivated category stays, marked as inactive. *@
+                            <MudChip T="string" Text="@TicketLabels.NameWithActiveState(competency.Name, competency.IsActive)"
+                                     Color="@(competency.IsActive ? Color.Primary : Color.Default)"
+                                     Variant="@(competency.IsActive ? Variant.Filled : Variant.Outlined)" Size="Size.Small" />
+                        }
+                    </MudStack>
+                }
+            </CellTemplate>
+        </TemplateColumn>
+        @* BR-05: the priority weight sum of the open tickets, as the automatic assignment counts it. *@
+        <PropertyColumn Property="agent => agent.Load" Title="Terhelés" />
+        <PropertyColumn Property="agent => agent.OpenTicketCount" Title="Nyitott jegyek" />
+        <TemplateColumn Title="Műveletek">
+            <CellTemplate>
+                <MudStack Row="true" Spacing="1">
+                    <MudButton id="@($"edit-competencies-{context.Item.Id}")" Size="Size.Small" Color="Color.Primary"
+                               Disabled="_busy" OnClick="() => EditCompetenciesAsync(context.Item)">
+                        Kompetenciák
+                    </MudButton>
+                    @if (context.Item.IsActive)
+                    {
+                        <MudButton id="@($"deactivate-agent-{context.Item.Id}")" Size="Size.Small" Color="Color.Error"
+                                   Disabled="_busy" OnClick="() => DeactivateAsync(context.Item)">
+                            Inaktiválás
+                        </MudButton>
+                    }
+                    else
+                    {
+                        <MudButton id="@($"activate-agent-{context.Item.Id}")" Size="Size.Small" Color="Color.Success"
+                                   Disabled="_busy" OnClick="() => ActivateAsync(context.Item)">
+                            Aktiválás
+                        </MudButton>
+                    }
+                </MudStack>
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <NoRecordsContent>
+        <MudText>Nincs ügyintéző.</MudText>
+    </NoRecordsContent>
+    <LoadingContent>
+        <MudText>Betöltés…</MudText>
+    </LoadingContent>
+</MudDataGrid>
+
+@code {
+    private static readonly DialogOptions DialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
+
+    private readonly CancellationTokenSource _cts = new();
+    private IReadOnlyList<AgentListItemDto> _agents = [];
+    private bool _loading = true;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => LoadAsync(_cts.Token);
+
+    private async Task LoadAsync(CancellationToken token)
+    {
+        var result = await Runner.RunAsync(
+            (ListAgentsHandler handler, CancellationToken ct) => handler.HandleAsync(new ListAgentsQuery(), ct),
+            token);
+        _loading = false;
+        if (result.IsFailure)
+        {
+            Snackbar.Add(result.Error.Message, Severity.Error);
+            return;
+        }
+
+        _agents = result.Value;
+    }
+
+    private Task EditCompetenciesAsync(AgentListItemDto agent) => RunExclusiveAsync(async token =>
+    {
+        var categories = await Runner.RunAsync(
+            (GetActiveCategoriesHandler handler, CancellationToken ct) => handler.HandleAsync(new GetActiveCategoriesQuery(), ct),
+            token);
+        if (categories.IsFailure)
+        {
+            Snackbar.Add(categories.Error.Message, Severity.Error);
+            return;
+        }
+
+        var parameters = new DialogParameters<AgentCompetenciesDialog>
+        {
+            { dialog => dialog.Categories, categories.Value },
+            { dialog => dialog.Competencies, agent.Competencies },
+        };
+        var dialog = await DialogService.ShowAsync<AgentCompetenciesDialog>(
+            $"{agent.DisplayName} kompetenciái", parameters, DialogOptions);
+        if (await dialog.Result is not { Canceled: false, Data: IReadOnlyList<Guid> categoryIds })
+        {
+            return;
+        }
+
+        await RunCommandAsync(
+            (SetAgentCompetenciesHandler handler, CancellationToken ct) =>
+                handler.HandleAsync(new SetAgentCompetenciesCommand(agent.Id, categoryIds), ct),
+            "A kompetenciák mentve.",
+            token);
+    });
+
+    private Task DeactivateAsync(AgentListItemDto agent) => RunExclusiveAsync(async token =>
+    {
+        // BR-12: the assigned tickets stay with the agent; BR-04: no new ticket from now on.
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Ügyintéző inaktiválása",
+            $"{agent.DisplayName} inaktiválás után új jegyet nem kap. A már kiosztott jegyei "
+            + $"({agent.OpenTicketCount} nyitott jegy) nála maradnak; ezeket kézzel lehet átosztani. Biztosan inaktiválod?",
+            yesText: "Inaktiválás",
+            cancelText: "Mégse");
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        await RunCommandAsync(
+            (DeactivateAgentHandler handler, CancellationToken ct) => handler.HandleAsync(new DeactivateAgentCommand(agent.Id), ct),
+            "Az ügyintéző inaktiválva.",
+            token);
+    });
+
+    private Task ActivateAsync(AgentListItemDto agent) => RunExclusiveAsync(async token =>
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Ügyintéző aktiválása",
+            $"{agent.DisplayName} aktiválás után újra kaphat jegyet a kompetenciái szerint. Biztosan aktiválod?",
+            yesText: "Aktiválás",
+            cancelText: "Mégse");
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        await RunCommandAsync(
+            (ActivateAgentHandler handler, CancellationToken ct) => handler.HandleAsync(new ActivateAgentCommand(agent.Id), ct),
+            "Az ügyintéző aktiválva.",
+            token);
+    });
+
+    // One operation at a time; the buttons are disabled meanwhile. The token is taken before the first await, so an
+    // operation that outlives the page (e.g. an open dialog) sees it cancelled instead of a disposed source.
+    private async Task RunExclusiveAsync(Func<CancellationToken, Task> operation)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await operation(_cts.Token);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // The common end of the commands: on success a message and a reload of the list, otherwise the error.
+    private async Task RunCommandAsync<THandler>(
+        Func<THandler, CancellationToken, Task<Result>> useCase,
+        string successMessage,
+        CancellationToken token)
+        where THandler : notnull
+    {
+        var result = await Runner.RunAsync(useCase, token);
+        if (result.IsFailure)
+        {
+            Snackbar.Add(result.Error.Message, Severity.Error);
+            return;
+        }
+
+        Snackbar.Add(successMessage, Severity.Success);
+        await LoadAsync(token);
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

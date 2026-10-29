@@ -327,6 +327,7 @@ Terhelési súly: Critical 5, High 4, Medium 3, Low 2, Planning 1.
 - **BR-12** Ügyintéző inaktiválása nem érinti a már kiosztott jegyeit; ezeket csak Admin oszthatja át kézzel. Inaktív ügyintéző új jegyet nem kaphat (BR-04).
 - **BR-13** Kategória nem törölhető, csak inaktiválható. Inaktív kategória új jegyhez nem választható és nem javasolható; a meglévő jegyeken megmarad.
   - Az ügyintéző meglévő kompetenciája a kategória inaktiválása után is megmarad; új kompetenciaként csak aktív kategória vehető fel.
+  - A kompetenciák cseréje az inaktív kategóriájú meglévő kompetenciákat nem érinti.
 
 ## 11. Hibakezelés és naplózás
 

@@ -76,18 +76,30 @@ public sealed class Agent
         return Result.Success();
     }
 
-    // The Admin use case: replaces the competency set like SetCompetencies, with the categories themselves. A new
-    // competency needs an active category; one the agent already has stays, even if its category was deactivated.
-    public Result UpdateCompetencies(IReadOnlyCollection<Category> categories)
+    // The Admin use case: replaces the competency set like SetCompetencies, with the categories themselves.
+    // categories: the requested set; currentCategories: the category of every current competency. A new competency
+    // needs an active category; a current one whose category was deactivated stays, requested or not.
+    public Result UpdateCompetencies(IReadOnlyCollection<Category> categories, IReadOnlyCollection<Category> currentCategories)
     {
         ArgumentNullException.ThrowIfNull(categories);
+        ArgumentNullException.ThrowIfNull(currentCategories);
+
+        var currentCategoryIds = currentCategories.Select(category => category.Id).ToHashSet();
+        if (!_competencies.TrueForAll(competency => currentCategoryIds.Contains(competency.CategoryId)))
+        {
+            throw new ArgumentException("The category of every current competency is required.", nameof(currentCategories));
+        }
 
         if (categories.Any(category => !category.IsActive && !HasCompetency(category.Id)))
         {
             return CategoryErrors.Inactive; // BR-13
         }
 
-        return SetCompetencies(categories.Select(category => category.Id));
+        // BR-13: replacing the set does not touch the current competencies of inactive categories.
+        var keptInactiveCategoryIds = currentCategories
+            .Where(category => !category.IsActive && HasCompetency(category.Id))
+            .Select(category => category.Id);
+        return SetCompetencies(categories.Select(category => category.Id).Union(keptInactiveCategoryIds));
     }
 
     public void Activate() => IsActive = true;

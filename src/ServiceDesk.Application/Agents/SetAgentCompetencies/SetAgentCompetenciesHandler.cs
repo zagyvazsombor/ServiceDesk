@@ -40,15 +40,21 @@ public sealed partial class SetAgentCompetenciesHandler(
             return AgentErrors.NotFound;
         }
 
+        // The categories of the current competencies are loaded too (in the same query), so the domain knows which of
+        // them are inactive.
         var categoryIds = command.CategoryIds.ToHashSet();
-        var categories = await categoryRepository.GetByIdsAsync(categoryIds, ct);
+        var currentCategoryIds = agent.Competencies.Select(competency => competency.CategoryId).ToHashSet();
+        var loaded = await categoryRepository.GetByIdsAsync([.. categoryIds.Union(currentCategoryIds)], ct);
+        var categories = loaded.Where(category => categoryIds.Contains(category.Id)).ToList();
         if (categories.Count != categoryIds.Count)
         {
             return CategoryErrors.NotFound;
         }
 
-        // BR-13: a new competency needs an active category; one the agent already has stays.
-        var update = agent.UpdateCompetencies(categories);
+        // BR-13: a new competency needs an active category; a current one of an inactive category stays, even if the
+        // command leaves it out.
+        var currentCategories = loaded.Where(category => currentCategoryIds.Contains(category.Id)).ToList();
+        var update = agent.UpdateCompetencies(categories, currentCategories);
         if (update.IsFailure)
         {
             return update;
@@ -60,7 +66,8 @@ public sealed partial class SetAgentCompetenciesHandler(
             return save;
         }
 
-        LogCompetenciesSet(logger, agent.Id, categoryIds.Count, authorization.Value);
+        // The resulting count, the kept competencies of inactive categories included.
+        LogCompetenciesSet(logger, agent.Id, agent.Competencies.Count, authorization.Value);
         return Result.Success();
     }
 

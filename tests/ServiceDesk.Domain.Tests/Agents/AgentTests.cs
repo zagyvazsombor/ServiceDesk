@@ -114,7 +114,7 @@ public sealed class AgentTests
         var software = TestData.CreateCategory("SOFTWARE");
         var agent = TestData.CreateAgent(hardware, network);
 
-        var result = agent.UpdateCompetencies([network, software]);
+        var result = agent.UpdateCompetencies([network, software], [hardware, network]);
 
         result.IsSuccess.ShouldBeTrue();
         agent.Competencies.Select(competency => competency.CategoryId).ShouldBe([network.Id, software.Id], ignoreOrder: true);
@@ -128,7 +128,7 @@ public sealed class AgentTests
         var other = TestData.CreateInactiveCategory("OTHER");
         var agent = TestData.CreateAgent(hardware);
 
-        var result = agent.UpdateCompetencies([hardware, other]);
+        var result = agent.UpdateCompetencies([hardware, other], [hardware]);
 
         result.Error.ShouldBe(CategoryErrors.Inactive);
         agent.Competencies.ShouldHaveSingleItem().CategoryId.ShouldBe(hardware.Id);
@@ -144,25 +144,54 @@ public sealed class AgentTests
         var agent = TestData.CreateAgent(hardware, other);
         other.Deactivate();
 
-        var result = agent.UpdateCompetencies([other, network]);
+        var result = agent.UpdateCompetencies([other, network], [hardware, other]);
 
         result.IsSuccess.ShouldBeTrue();
         agent.Competencies.Select(competency => competency.CategoryId).ShouldBe([other.Id, network.Id], ignoreOrder: true);
     }
 
-    [Fact]
+    [Theory]
     [Trait("BR", "BR-13")]
-    public void UpdateCompetencies_DeactivatedCategoryLeftOut_RemovesIt()
+    [InlineData(true)]
+    [InlineData(false)]
+    public void UpdateCompetencies_DeactivatedCategoryLeftOut_KeepsIt(bool keepHardware)
     {
         var hardware = TestData.CreateCategory("HARDWARE");
         var other = TestData.CreateCategory("OTHER");
         var agent = TestData.CreateAgent(hardware, other);
         other.Deactivate();
 
-        var result = agent.UpdateCompetencies([hardware]);
+        var result = agent.UpdateCompetencies(keepHardware ? [hardware] : [], [hardware, other]);
+
+        result.IsSuccess.ShouldBeTrue();
+        Guid[] expected = keepHardware ? [hardware.Id, other.Id] : [other.Id];
+        agent.Competencies.Select(competency => competency.CategoryId).ShouldBe(expected, ignoreOrder: true);
+    }
+
+    [Fact]
+    [Trait("BR", "BR-13")]
+    public void UpdateCompetencies_ActiveCategoryLeftOut_RemovesIt()
+    {
+        var hardware = TestData.CreateCategory("HARDWARE");
+        var other = TestData.CreateCategory("OTHER");
+        var agent = TestData.CreateAgent(hardware, other);
+
+        var result = agent.UpdateCompetencies([hardware], [hardware, other]);
 
         result.IsSuccess.ShouldBeTrue();
         agent.Competencies.ShouldHaveSingleItem().CategoryId.ShouldBe(hardware.Id);
+    }
+
+    [Fact]
+    public void UpdateCompetencies_CategoryOfCurrentCompetencyMissing_Throws()
+    {
+        var hardware = TestData.CreateCategory("HARDWARE");
+        var other = TestData.CreateCategory("OTHER");
+        var agent = TestData.CreateAgent(hardware, other);
+
+        Should.Throw<ArgumentException>(() => agent.UpdateCompetencies([hardware], [hardware]))
+            .ParamName.ShouldBe("currentCategories");
+        agent.Competencies.Count.ShouldBe(2);
     }
 
     [Fact]

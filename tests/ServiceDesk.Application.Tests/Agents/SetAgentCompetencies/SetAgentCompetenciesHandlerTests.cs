@@ -140,6 +140,26 @@ public sealed class SetAgentCompetenciesHandlerTests
     }
 
     [Fact]
+    [Trait("BR", "BR-13")]
+    public async Task HandleAsync_DeactivatedCategoryLeftOut_KeepsItSavesAndLogsResultingCount()
+    {
+        // Arrange
+        _hardware.Deactivate();
+
+        // Act: the UI sends only the active categories.
+        var result = await CreateHandler(TestUsers.Admin()).HandleAsync(Command(_network), CancellationToken);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        ShouldHaveCompetencies(_hardware, _network);
+        await _categories.Received(1).GetByIdsAsync(
+            Arg.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 2 && ids.Contains(_hardware.Id) && ids.Contains(_network.Id)),
+            CancellationToken);
+        await _unitOfWork.Received(1).SaveChangesAsync(CancellationToken);
+        _logger.Entries.ShouldHaveSingleItem().Properties["CompetencyCount"].ShouldBe(2);
+    }
+
+    [Fact]
     [Trait("BR", "BR-04")]
     public async Task HandleAsync_ActiveCategories_ReplacesCompetenciesSavesAndLogs()
     {
