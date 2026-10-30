@@ -11,15 +11,14 @@ using ServiceDesk.Infrastructure.Identity;
 namespace ServiceDesk.Infrastructure.Persistence.Seed;
 
 // AGENTS.md §7: development demo data. Idempotent: it only creates what is missing and never overwrites existing data.
+// The roles come from the RoleSeeder, which also runs outside Development (ADR-009).
 internal sealed class DatabaseSeeder(
     AppDbContext dbContext,
     UserManager<ApplicationUser> userManager,
-    RoleManager<IdentityRole> roleManager,
+    RoleSeeder roleSeeder,
     IOptions<SeedOptions> options,
     ILogger<DatabaseSeeder> logger)
 {
-    private static readonly string[] SeedRoles = [Roles.Reporter, Roles.Admin];
-
     private static readonly SeedCategory[] SeedCategories =
     [
         new("HARDWARE", "Hardver", "Számítógépek, monitorok, nyomtatók és egyéb eszközök hibái."),
@@ -47,7 +46,7 @@ internal sealed class DatabaseSeeder(
                 $"Configuration value '{SeedOptions.SectionName}:{nameof(SeedOptions.DefaultPassword)}' is missing.");
         }
 
-        var createdRoles = await SeedRolesAsync();
+        var createdRoles = await roleSeeder.SeedAsync(ct);
         var (userIds, createdUsers) = await SeedUsersAsync(password);
         var (categoryIds, createdCategories) = await SeedCategoriesAsync(ct);
         var createdAgents = await SeedAgentsAsync(userIds, categoryIds, ct);
@@ -60,21 +59,6 @@ internal sealed class DatabaseSeeder(
             createdUsers,
             createdCategories,
             createdAgents);
-    }
-
-    private async Task<int> SeedRolesAsync()
-    {
-        var created = 0;
-        foreach (var role in SeedRoles)
-        {
-            if (!await roleManager.RoleExistsAsync(role))
-            {
-                EnsureSucceeded(await roleManager.CreateAsync(new IdentityRole(role)));
-                created++;
-            }
-        }
-
-        return created;
     }
 
     // The UserManager saves each user immediately; returns the user Id of every seed e-mail address.

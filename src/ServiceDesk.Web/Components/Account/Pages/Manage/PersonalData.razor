@@ -17,19 +17,12 @@
         </MudText>
     </MudItem>
     <MudItem md="12">
-        <MudAlert Severity="Severity.Warning" Variant="Variant.Text">
-            Deleting this data will permanently remove your account, and this cannot be recovered.
-        </MudAlert>
-    </MudItem>
-    <MudItem md="12">
         <form action="Account/Manage/DownloadPersonalData" method="post">
             <AntiforgeryToken />
             <MudStaticButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" FormAction="FormAction.Submit">Download</MudStaticButton>
         </form>
     </MudItem>
-    <MudItem md="12">
-        <MudLink Href="Account/Manage/DeletePersonalData" Color="Color.Error">Delete</MudLink>
-    </MudItem>
+    @* P-9A, AGENTS.md §6 exception: no self-service account deletion, so the Delete link and its warning are removed. *@
 </MudGrid>
 
 @code {

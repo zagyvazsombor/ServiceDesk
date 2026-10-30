@@ -5,8 +5,8 @@ using ServiceDesk.Application.Common.Errors;
 using ServiceDesk.Application.Common.Persistence;
 using ServiceDesk.Application.Common.Security;
 using ServiceDesk.Application.Common.Validation;
-using ServiceDesk.Domain.Common;
 using ServiceDesk.Domain.CategorySuggestions;
+using ServiceDesk.Domain.Common;
 
 namespace ServiceDesk.Application.Tickets.SuggestCategory;
 

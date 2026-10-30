@@ -3,10 +3,10 @@
     <Found Context="routeData">
         <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
             <NotAuthorized>
-                @* A signed-in user without the required role gets a message instead of the login page. *@
+                @* A signed-in user without the required role gets a message (and a Warning log) instead of the login page. *@
                 @if (context.User.Identity?.IsAuthenticated == true)
                 {
-                    <MudAlert Severity="Severity.Warning">Nincs jogosultságod az oldal megtekintéséhez.</MudAlert>
+                    <NotAuthorizedAlert User="context.User" />
                 }
                 else
                 {

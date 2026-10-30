@@ -1,96 +1,12 @@
 ﻿@page "/Account/Manage/DeletePersonalData"
 
-@using System.ComponentModel.DataAnnotations
-@using Microsoft.AspNetCore.Identity
-@using ServiceDesk.Infrastructure.Identity
+@* P-9A, AGENTS.md §6 exception: there is no self-service account deletion (the agent profile and the tickets refer to
+   the user, AGENTS.md §7). The page of the template only gives this notice; it has no form and deletes nothing. *@
 
-@inject UserManager<ApplicationUser> UserManager
-@inject SignInManager<ApplicationUser> SignInManager
-@inject IdentityRedirectManager RedirectManager
-@inject ILogger<DeletePersonalData> Logger
+<PageTitle>Fiók törlése</PageTitle>
 
-<PageTitle>Delete Personal Data</PageTitle>
+<MudText Typo="Typo.h6" GutterBottom="true">Fiók törlése</MudText>
 
-<MudText Typo="Typo.h6" GutterBottom="true">Delete personal data</MudText>
-
-<StatusMessage Message="@message" />
-
-<MudAlert Severity="Severity.Error" Variant="Variant.Text">
-    Deleting this data will permanently remove your account, and this cannot be recovered.
+<MudAlert Severity="Severity.Info" Variant="Variant.Text">
+    A fiók törlése nem érhető el, fordulj az adminisztrátorhoz.
 </MudAlert>
-
-<EditForm Model="Input" FormName="delete-user" OnValidSubmit="OnValidSubmitAsync" method="post">
-    <DataAnnotationsValidator />
-
-    <MudGrid>
-        @if (requirePassword)
-        {
-            <MudItem md="12">
-                <MudStaticTextField For="@(() => Input.Password)" @bind-Value="Input.Password" InputType="InputType.Password"
-                                    Label="Password" Placeholder="password" HelperText="Please enter your new password."
-                                    UserAttributes="@(new() { { "autocomplete", "current-password" }, { "aria-required", "true" } } )" />
-            </MudItem>
-        }
-        <MudItem md="12">
-            <MudStaticButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" FormAction="FormAction.Submit">Delete data and close my account</MudStaticButton>
-        </MudItem>
-    </MudGrid>
-</EditForm>
-
-@code {
-    private string? message;
-    private ApplicationUser? user;
-    private bool requirePassword;
-
-    [CascadingParameter]
-    private HttpContext HttpContext { get; set; } = default!;
-
-    [SupplyParameterFromForm]
-    private InputModel Input { get; set; } = default!;
-
-    protected override async Task OnInitializedAsync()
-    {
-        Input ??= new();
-        user = await UserManager.GetUserAsync(HttpContext.User);
-        if (user is null)
-        {
-            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
-            return;
-        }
-        requirePassword = await UserManager.HasPasswordAsync(user);
-    }
-
-    private async Task OnValidSubmitAsync()
-    {
-        if (user is null)
-        {
-            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
-            return;
-        }
-
-        if (requirePassword && !await UserManager.CheckPasswordAsync(user, Input.Password))
-        {
-            message = "Error: Incorrect password.";
-            return;
-        }
-
-        var result = await UserManager.DeleteAsync(user);
-        if (!result.Succeeded)
-        {
-            throw new InvalidOperationException("Unexpected error occurred deleting user.");
-        }
-
-        await SignInManager.SignOutAsync();
-
-        var userId = await UserManager.GetUserIdAsync(user);
-        Logger.LogInformation("User with ID '{UserId}' deleted themselves.", userId);
-
-        RedirectManager.RedirectToCurrentPage();
-    }
-
-    private sealed class InputModel
-    {
-        [DataType(DataType.Password)]
-        public string Password { get; set; } = "";
-    }
-}

@@ -1,0 +1,21 @@
+@using System.Security.Claims
+@inject ILogger<NotAuthorizedAlert> Logger
+@inject NavigationManager NavigationManager
+
+@* AGENTS.md §8, level 1: a signed-in user without the required role, navigating inside the circuit. *@
+<MudAlert Severity="Severity.Warning">Nincs jogosultságod az oldal megtekintéséhez.</MudAlert>
+
+@code {
+    [Parameter, EditorRequired]
+    public ClaimsPrincipal User { get; set; } = default!;
+
+    // AGENTS.md §11: a denied access is a Warning. The HTTP request of a refused page is logged by the
+    // AccessDeniedLoggingResultHandler; this covers the navigation inside the circuit, which sends no request.
+    protected override void OnInitialized()
+    {
+        Logger.LogWarning(
+            "Page {Path} denied access to user {UserId}",
+            new Uri(NavigationManager.Uri).AbsolutePath,
+            User.FindFirstValue(ClaimTypes.NameIdentifier));
+    }
+}

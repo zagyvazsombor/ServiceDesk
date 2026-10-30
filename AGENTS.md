@@ -145,6 +145,9 @@ KÖTELEZŐ minták:
   - `MapRazorComponents<App>().AddInteractiveServerRenderMode()`, `MapAdditionalIdentityEndpoints()`
 - Globális interaktivitás az `App.razor`-ban a sablon `PageRenderMode` logikájával (`HttpContext.AcceptsInteractiveRouting()`), azzal a kivétellel, hogy a státuszkód-újrafuttatott (`IStatusCodeReExecuteFeature`) kérések statikusan renderelődnek. Indok: ezekhez a válaszokhoz a framework nem ír megőrzött komponensállapotot, így a belőlük induló circuitnek nem volna antiforgery-tokenje (ADR-006). A hibakezelő oldalt a framework eleve statikusan rendereli; ezt teszt ellenőrzi. Interaktív esetben a visszaadott érték `new InteractiveServerRenderMode(prerender: false)` (statikus mezőben).
 - A `Components/Account` oldalai `[ExcludeFromInteractiveRouting]` miatt statikus SSR-ben futnak; ezt nem változtatjuk meg.
+- Kivétel (P-9A): a fiók önkiszolgáló törlése nem érhető el.
+  - `Account/Pages/Manage/DeletePersonalData.razor`: törlés helyett csak magyar tájékoztatást ad („A fiók törlése nem érhető el, fordulj az adminisztrátorhoz.”); űrlapja és törlő logikája nincs.
+  - `Account/Pages/Manage/PersonalData.razor`: csak a Delete link és a hozzá tartozó figyelmeztetés került ki; a Download és a „Personal data” menüpont marad.
 - Oldalakra nem kerül `@rendermode` direktíva.
 - Statikus fájlok `@Assets["…"]`-szel, pl. `@Assets["_framework/blazor.web.js"]`, `@Assets["_content/MudBlazor/MudBlazor.min.css"]`.
 - A MudBlazor-providerek (`MudThemeProvider`, `MudPopoverProvider`, `MudDialogProvider`, `MudSnackbarProvider`) egyszer, a `MainLayout`-ban vannak; a `@Body` egy `ErrorBoundary`-n belül.
@@ -182,7 +185,9 @@ TILOS (régi, .NET 6–7 korszakbeli vagy ütköző minták):
 - Felhasználó-hivatkozás FK-val (`Ticket.ReporterId`, `Agent.UserId` → `AspNetUsers.Id`), navigációs property nélkül, `DeleteBehavior.Restrict`-tel.
 - Olvasás: `AsNoTracking()` + `Select` közvetlenül DTO-ba; N+1 lekérdezés TILOS. Íráskor az aggregátum teljes betöltése, `Include`-dal a gyerek-gyűjteményekre.
 - Migráció: `dotnet ef migrations add <Név> -p src/ServiceDesk.Infrastructure -s src/ServiceDesk.Web -o Persistence/Migrations`. Kézi szerkesztés csak indoklással. `EnsureCreated()` TILOS.
-- Indításkor, csak Development környezetben: `Database.MigrateAsync()`, majd az idempotens `DatabaseSeeder` (szerepkörök; felhasználók `UserManager`/`RoleManager`-rel; kategóriák; ügyintézői profilok; kompetenciák).
+- Indításkor (ADR-009):
+  - Minden környezetben: az idempotens `RoleSeeder` létrehozza a hiányzó `Reporter` és `Admin` szerepkört. Developmenten kívül nincs automatikus migráció, a sémát előre telepíteni kell.
+  - Csak Development környezetben: előbb `Database.MigrateAsync()`, majd az idempotens `DatabaseSeeder` (szerepkörök a `RoleSeeder`-rel; felhasználók `UserManager`-rel; kategóriák; ügyintézői profilok; kompetenciák).
 
 Seed-adatok (KÖTELEZŐ, a tesztek és a bemutató erre épül):
 
@@ -195,7 +200,7 @@ Seed-adatok (KÖTELEZŐ, a tesztek és a bemutató erre épül):
 | `bejelento.erik@servicedesk.local` | Reporter | – |
 
 - Kategóriák (mind aktív, rövid magyar leírással; az LLM-prompt is ezt használja): `HARDWARE` Hardver, `SOFTWARE` Szoftver, `NETWORK` Hálózat, `ACCESS` Jogosultság és hozzáférés, `OTHER` Egyéb.
-- Seed-jelszó: `Seed:DefaultPassword` az `appsettings.Development.json`-ban; meg kell felelnie a 8. szakasz jelszószabályának. Csak fejlesztői demó; élesben a seeder nem fut.
+- Seed-jelszó: `Seed:DefaultPassword` az `appsettings.Development.json`-ban; meg kell felelnie a 8. szakasz jelszószabályának. Csak fejlesztői demó; élesben a demóseeder nem fut (csak a `RoleSeeder`).
 
 ## 8. Biztonság és jogosultságkezelés
 

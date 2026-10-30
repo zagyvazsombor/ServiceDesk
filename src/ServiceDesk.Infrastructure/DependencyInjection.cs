@@ -35,6 +35,7 @@ public static class DependencyInjection
         services.AddScoped<IUserQueries, UserQueries>();
         services.AddScoped<ITicketQueries, TicketQueries>();
         services.Configure<SeedOptions>(configuration.GetSection(SeedOptions.SectionName));
+        services.AddScoped<RoleSeeder>();
         services.AddScoped<DatabaseSeeder>();
 
         // AGENTS.md §9: a wrong Ai section stops the host at start-up; the provider is chosen from the validated

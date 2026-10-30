@@ -1,0 +1,6 @@
+# LF in the index and in the working tree on every OS, whatever core.autocrlf is; matches end_of_line in .editorconfig.
+* text=auto eol=lf
+
+# Binary files are never converted.
+*.ico binary
+*.png binary

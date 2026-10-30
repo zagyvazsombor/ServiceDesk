@@ -3,8 +3,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ServiceDesk.Application.Common.Ai;
 using ServiceDesk.Application.Common.Errors;
-using ServiceDesk.Domain.Common;
 using ServiceDesk.Domain.CategorySuggestions;
+using ServiceDesk.Domain.Common;
 
 namespace ServiceDesk.Infrastructure.Ai;
 
