@@ -196,7 +196,6 @@ Delete link ki (Javasolt): a §6-kivétel kiterjed a PersonalData.razor-ra, de c
   `RoleSeeder`. Csak dokumentáció változott, ezért build és teszt nem kellett hozzá.
 
 ## Emberi javítás
-TODO – a hallgató tölti ki
-
+Kézi forráskód-módosításra nem volt szükség. A jóváhagyott döntéseket (dinamikus CSP-hash számítás normalizált importmapből, biztonsági fejlécek és X-Frame-Options DENY / frame-ancestors none, oldalszintű hozzáférés-megtagadás Warning naplózása, RoleSeeder környezetfüggetlen futtatása ADR-009 szerint, fióktörlés helyetti magyar tájékoztatás a §6 kivételével, valamint a leállított LocalDB-hez 60 mp-es timeout) maradéktalanul elfogadtam. A security-review.md táblázatot és a 33 ismert korlát feldolgozását átnéztem. A git renormalizálást a .gitattributes alapján elvégeztem. A dotnet format tiszta, mind a 828/828 teszt zöld.
 ## Commit
 chore(security): apply security hardening, dynamic csp, role seeding and audit review
